@@ -7,6 +7,8 @@ import { User } from "../models/userSchema.js";
 export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   const {
     name,
+    firstName,
+    lastName,
     email,
     phone,
     nic,
@@ -79,33 +81,27 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   }
   const doctorIdFinal = chosenDoctor._id;
 
-  let patientId = null;
-  if (hasVisited) {
-    let patient = await User.findOne({
-      $or: [ { nic: nicToUse }, { email: emailToUse } ],
-      role: 'Patient'
+  // Always create/find patient and set patientId
+  let patient = await User.findOne({
+    $or: [ { nic: nicToUse }, { email: emailToUse } ],
+    role: 'Patient'
+  });
+  if (!patient) {
+    const patientPassword = password || 'defaultPassword123';
+    patient = await User.create({
+      firstName,
+      lastName,
+      email: emailToUse,
+      phone,
+      nic: nicToUse,
+      dob: dobDate,
+      gender: gender || 'Male',
+      password: patientPassword,
+      role: 'Patient',
+      age: ageVal,
     });
-    if (!patient) {
-      const patientPassword = password || 'defaultPassword123';
-      // split name into first/last
-      const parts = name.split(' ');
-      const first = parts[0];
-      const last = parts.slice(1).join(' ') || parts[0];
-      patient = await User.create({
-        firstName: first,
-        lastName: last,
-        email: emailToUse,
-        phone,
-        nic: nicToUse,
-        dob: dobDate,
-        gender: gender || 'Male',
-        password: patientPassword,
-        role: 'Patient',
-        age: ageVal,
-      });
-    }
-    patientId = patient._id;
   }
+  const patientId = patient._id;
 
   // price comes from doctor's consultationFee, booking price may be smaller (20% of fee) or specific
   const bookingPrice = Math.round((chosenDoctor?.consultationFee || 100) * 0.2);
@@ -301,4 +297,24 @@ export const deleteAppointment = catchAsyncErrors(async (req, res, next) => {
     success: true,
     message: "Appointment Deleted!",
   });
+});
+
+// Bulk delete appointments by array of IDs
+export const bulkDeleteAppointments = catchAsyncErrors(async (req, res, next) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return next(new ErrorHandler("No appointment IDs provided for bulk delete", 400));
+  }
+  const result = await Appointment.deleteMany({ _id: { $in: ids } });
+  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments deleted" });
+});
+
+// Delete all appointments for a patient (to be called when deleting patient)
+export const deleteAppointmentsByPatientId = catchAsyncErrors(async (req, res, next) => {
+  const { patientId } = req.params;
+  if (!patientId) {
+    return next(new ErrorHandler("No patient ID provided", 400));
+  }
+  const result = await Appointment.deleteMany({ patientId });
+  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments for patient deleted" });
 });

@@ -6,6 +6,7 @@ import {
   deleteMessageById,
   bulkDeleteMessages,
   searchMessages,
+  getMessagesForDoctor,
 } from "../controller/messageController.js";
 import { isAdminAuthenticated } from "../middlewares/auth.js";
 const router = express.Router();
@@ -16,5 +17,8 @@ router.get("/search", searchMessages);
 router.put("/:id", updateMessage);
 router.delete("/:id", deleteMessageById);
 router.post("/bulk-delete", bulkDeleteMessages);
+// Get messages sent to a specific doctor
+
+router.get('/doctor/:id', getMessagesForDoctor);
 
 export default router;

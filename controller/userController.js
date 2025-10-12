@@ -61,7 +61,11 @@ export const login = catchAsyncErrors(async (req, res, next) => {
   }
   generateToken(user, "Login Successfully!", 201, res);
 });
-
+// Get all compounders
+export const getAllCompounders = catchAsyncErrors(async (req, res, next) => {
+  const compounders = await User.find({ role: 'Compounder' }).select('firstName lastName email _id');
+  res.status(200).json({ success: true, compounders });
+});
 export const addNewAdmin = catchAsyncErrors(async (req, res, next) => {
   const { firstName, lastName, email, phone, nic, dob, gender, password, role, assignedDoctors } = req.body;
 
@@ -190,6 +194,27 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({ success: true, message: 'User role updated', user });
 });
 
+  // Update user by ID (Admin only)
+  export const updateUserById = catchAsyncErrors(async (req, res, next) => {
+    const { id } = req.params;
+    const updateData = req.body;
+    const user = await User.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+    if (!user) return next(new ErrorHandler('User not found', 404));
+    res.status(200).json({ success: true, message: 'User updated successfully', user });
+  });
+
+  // Delete user by ID (Admin only)
+    export const deleteUserById = catchAsyncErrors(async (req, res, next) => {
+      const { id } = req.params;
+      const user = await User.findByIdAndDelete(id);
+      if (!user) return next(new ErrorHandler('User not found', 404));
+      // If user is a patient, delete all their appointments
+      if (user.role === 'Patient') {
+        await Appointment.deleteMany({ patientId: user._id });
+      }
+      res.status(200).json({ success: true, message: 'User deleted successfully' });
+    });
+
 export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
   // if (!req.files || Object.keys(req.files).length === 0) {
   //   return next(new ErrorHandler("Doctor Avatar Required!", 400));
@@ -270,6 +295,27 @@ export const getAllDoctors = catchAsyncErrors(async (req, res, next) => {
   const doctors = await User.find({ role: 'Doctor' }).populate({ path: 'compounders', select: 'firstName lastName email' });
   res.status(200).json({ success: true, doctors });
 });
+
+  // Search doctors by name, phone, department, or NIC using regex
+  export const searchDoctor = catchAsyncErrors(async (req, res, next) => {
+    const { query } = req.query;
+    if (!query) {
+      return next(new ErrorHandler('Search query required', 400));
+    }
+    // Build regex for case-insensitive partial match
+    const regex = new RegExp(query, 'i');
+    const doctors = await User.find({
+      role: 'Doctor',
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { phone: regex },
+        { doctorDepartment: regex },
+        { nic: regex }
+      ]
+    });
+    res.status(200).json({ success: true, doctors });
+  });
 
 // Get patient by ID
 export const getPatientById = catchAsyncErrors(async (req, res, next) => {

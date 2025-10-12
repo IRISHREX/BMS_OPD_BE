@@ -7,6 +7,8 @@ import {
   searchAppointments,
   updateAppointmentByPatientId,
   updateAppointmentStatus,
+  bulkDeleteAppointments,
+  deleteAppointmentsByPatientId,
 } from "../controller/appointmentController.js";
 import {
   isAdminAuthenticated,
@@ -28,5 +30,11 @@ router.put("/update/:id", isAdminAuthenticated, updateAppointmentStatus);
 router.put("/status/:id", updateAppointmentStatus);
 router.put("/patient/update/:id", updateAppointmentByPatientId);
 router.delete("/delete/:id", isAdminAuthenticated, deleteAppointment);
+
+// Bulk delete appointments by IDs
+router.post("/bulk-delete", isAdminAuthenticated, bulkDeleteAppointments);
+
+// Delete all appointments for a patient
+router.delete("/delete/patient/:patientId", isAdminAuthenticated, deleteAppointmentsByPatientId);
 
 export default router;

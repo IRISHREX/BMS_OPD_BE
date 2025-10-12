@@ -1,6 +1,6 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
-import { Message } from "../models/messageSchema.js";
+import { Message } from '../models/messageSchema.js';
 
 export const sendMessage = catchAsyncErrors(async (req, res, next) => {
   const { firstName, lastName, email, phone, message } = req.body;
@@ -57,7 +57,15 @@ export const bulkDeleteMessages = catchAsyncErrors(async (req, res, next) => {
   const result = await Message.deleteMany({ _id: { $in: ids } });
   res.status(200).json({ success: true, deletedCount: result.deletedCount });
 });
-
+export const getMessagesForDoctor = async (req, res, next) => {
+  try {
+    const doctorId = req.params.id;
+    const messages = await Message.find({ recipient: doctorId }).sort({ createdAt: -1 });
+    res.status(200).json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch messages' });
+  }
+};
 export const searchMessages = catchAsyncErrors(async (req, res, next) => {
   const { q } = req.query;
   if (!q) return res.status(200).json({ success: true, messages: [] });
