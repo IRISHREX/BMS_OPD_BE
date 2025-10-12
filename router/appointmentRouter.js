@@ -19,7 +19,7 @@ const router = express.Router();
 
 // router.post("/post", postAppointment);
 // Only dashboard users (Admin/Doctor/Compounder) may create appointments via dashboard
-router.post("/post", isDashboardAuthenticated,postAppointment);
+router.post("/post",isDashboardAuthenticated,postAppointment);
 router.get("/getall", getAllAppointments);
 router.get("/patient/:id", getAppointmentsByPatientId);
 router.get("/search", searchAppointments);
