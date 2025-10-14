@@ -88,7 +88,10 @@ const appointmentSchema = new mongoose.Schema({
           ],
           default: [],
         },
-        advice: { type: String },
+          advice: {
+            type: Object,
+            default: () => ({ types: [], custom: [] })
+          },
       },
     ],
     default: [],
