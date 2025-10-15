@@ -40,7 +40,8 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   const apptDate = appointment_date || new Date().toISOString();
 
   // Determine email default
-  const emailToUse = email || "SohelJavadeveloper@gmail.com";
+  const emailToUse = email || `${name.slice(0,4)}.${phone.slice(-2)}@BIOMECHASOFT.com`;
+  console.log("Using email:", emailToUse);
 
   // Determine nic/dob/age defaults: if age provided but not dob, compute dob; if dob provided but not age compute age; if nic missing generate from phone
   let dobDate = dob ? new Date(dob) : null;
@@ -91,7 +92,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     patient = await User.create({
       firstName,
       lastName,
-      email: emailToUse,
+      email: emailToUse?.toLowerCase(),
       phone,
       nic: nicToUse,
       dob: dobDate,

@@ -11,7 +11,7 @@ const appointmentSchema = new mongoose.Schema({
   email: {
     type: String,
     required: false,
-    validate: [v => !v || validator.isEmail(v), "Provide A Valid Email!"],
+    // validate: [v => !v || validator.isEmail(v), "Provide A Valid Email!"],
     default: "SohelJavadeveloper@gmail.com",
   },
   age: {
@@ -21,8 +21,8 @@ const appointmentSchema = new mongoose.Schema({
   phone: {
     type: String,
     required: [true, "Phone Is Required!"],
-    minLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
-    maxLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
+    minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
+    maxLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
   },
   nic: {
     type: String,
