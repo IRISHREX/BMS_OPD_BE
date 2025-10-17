@@ -44,6 +44,11 @@ const appointmentSchema = new mongoose.Schema({
     required: [true, "Appointment Date Is Required!"],
     default: new Date().toISOString(),
   },
+  followup_date: {
+    type: String,
+    required: false,
+    default: null,
+  },
   department: {
     type: String,
     required: [true, "Department Name Is Required!"],
@@ -119,6 +124,7 @@ const appointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.ObjectId,
     ref: "User",
   },
+  invoices: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' }],
   status: {
     type: String,
     enum: ["Pending", "Accepted", "Rejected","Completed"],

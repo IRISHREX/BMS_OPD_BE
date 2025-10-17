@@ -3,6 +3,7 @@ import ErrorHandler from "../middlewares/error.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { Message } from "../models/messageSchema.js";
 import { User } from "../models/userSchema.js";
+import { Invoice } from "../models/invoiceSchema.js";
 
 export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   const {
@@ -15,6 +16,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     dob,
     gender,
     appointment_date,
+    followup_date,
     department,
     doctorId,
     hasVisited,
@@ -88,6 +90,8 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     role: 'Patient'
   });
   if (!patient) {
+    let firstName = name.slice(0, name.indexOf(' '));
+    let lastName =name.slice(name.indexOf(' ') + 1) || ' ';
     const patientPassword = password || 'defaultPassword123';
     patient = await User.create({
       firstName,
@@ -116,6 +120,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     age: ageVal,
     gender,
     appointment_date: apptDate,
+    followup_date: followup_date,
     department,
     doctor: {
       firstName: chosenDoctor.firstName,
@@ -130,12 +135,45 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     status: 'Pending'
   });
 
-  // If client requested invoice download (query param download=true) return a simple HTML invoice as attachment
-  if (req.query && req.query.download === 'true') {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Appointment Invoice</title></head><body><h1>Appointment Invoice</h1><p>Patient: ${appointment.name}</p><p>Phone: ${appointment.phone}</p><p>Doctor: ${chosenDoctor.firstName} ${chosenDoctor.lastName}</p><p>Department: ${appointment.department}</p><p>Date: ${appointment.appointment_date}</p><p>Price: ${appointment.price} Rs</p><p>Payment Status: ${appointment.paymentStatus}</p></body></html>`;
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="appointment-${appointment._id}.html"`);
-    return res.status(200).send(html);
+  // Auto-generate invoice for this appointment
+  try {
+    const genInvoiceNumber = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`;
+    // Use doctor's consultationFee when available, otherwise fall back to bookingPrice
+    const consultationFee = Number(chosenDoctor?.consultationFee || bookingPrice || 0);
+    const platformFee = 50; // default platform fee
+
+    const invoiceItems = [
+      { description: 'Consultation Fee', quantity: 1, unitPrice: consultationFee, total: consultationFee },
+      { description: 'Platform Fee', quantity: 1, unitPrice: platformFee, total: platformFee },
+    ];
+console.log("Creating invoice with items:", appointment._id);
+    const invoice = await Invoice.create({
+      invoiceNumber: genInvoiceNumber,
+      appointment: appointment._id,
+      patient: patientId,
+      doctor: doctorIdFinal,
+      items: invoiceItems,
+      tax: 0,
+      discount: 0,
+      issuedAt: new Date(),
+      status: 'Unpaid'
+    });
+
+    // attach invoice to appointment record
+    appointment.invoices = appointment.invoices || [];
+    appointment.invoices.push(invoice._id);
+    await appointment.save();
+
+    // If client requested invoice download (query param download=true) return a simple HTML invoice as attachment
+    if (req.query && req.query.download === 'true') {
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceNumber}</title></head><body><h1>Invoice: ${invoice.invoiceNumber}</h1><p>Patient: ${appointment.name}</p><p>Phone: ${appointment.phone}</p><p>Doctor: ${chosenDoctor.firstName} ${chosenDoctor.lastName}</p><p>Department: ${appointment.department}</p><p>Date: ${appointment.appointment_date}</p><p>Items:</p><ul>${invoice.items.map(i=>`<li>${i.description} - ${i.quantity} x ${i.unitPrice} = ${i.total}</li>`).join('')}</ul><p>Subtotal: ${invoice.subtotal}</p><p>Tax: ${invoice.tax}</p><p>Discount: ${invoice.discount}</p><p>Total: ${invoice.total} Rs</p><p>Payment Status: ${invoice.status}</p></body></html>`;
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice._id}.html"`);
+      return res.status(200).send(html);
+    }
+  } catch (e) {
+    console.warn('Failed to create invoice for appointment:', e.message);
+    // proceed without failing the appointment creation
   }
 
   res.status(200).json({ success: true, appointment, message: 'Appointment Created!' });
