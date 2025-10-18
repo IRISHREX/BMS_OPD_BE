@@ -10,6 +10,7 @@ import userRouter from "./router/userRouter.js";
 import appointmentRouter from "./router/appointmentRouter.js";
 import medicalAdviceRouter from "./router/medicalAdviceRouter.js";
 import invoiceRouter from "./router/invoiceRouter.js";
+import reportRouter from "./router/reportRouter.js";
 
 const app = express();
 config({ path: "./.env" });
@@ -53,6 +54,7 @@ app.use("/api/v1/user", userRouter);
 app.use("/api/v1/appointment", appointmentRouter);
 app.use("/api/v1/medical", medicalAdviceRouter);
 app.use("/api/v1/invoice", invoiceRouter);
+app.use("/api/v1/reports", reportRouter);
 
 // Debug endpoint to inspect request cookies, headers and authenticated user.
 // This is intentionally only enabled when not in production to avoid exposing internals.

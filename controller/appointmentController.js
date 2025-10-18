@@ -5,6 +5,86 @@ import { Message } from "../models/messageSchema.js";
 import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
 
+// Helper to centralize business rules for status <-> paymentStatus
+// contexts: 'create', 'prescription_save', 'status_update'
+function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}, context = 'status_update' }) {
+  const payload = { ...incomingPayload };
+  const existing = existingAppointment || {};
+
+  // Normalize some values
+  if (payload.paymentStatus) payload.paymentStatus = String(payload.paymentStatus);
+  if (payload.status) payload.status = String(payload.status);
+
+  if (context === 'create') {
+    // At creation, Paid -> Accepted (do NOT auto-complete)
+    if (payload.paymentStatus === 'Paid') {
+      payload.status = payload.status || 'Accepted';
+    } else if (payload.paymentStatus === 'Accepted') {
+      payload.status = payload.status || 'Accepted';
+    } else {
+      payload.status = payload.status || 'Pending';
+    }
+    // Do not allow Completed on creation unless explicitly Paid and requested (rare): enforce Paid requirement
+    if (payload.status === 'Completed' && payload.paymentStatus !== 'Paid') {
+      payload.status = 'Accepted';
+      payload.paymentStatus = payload.paymentStatus || 'Due';
+    }
+    return payload;
+  }
+
+  if (context === 'prescription_save') {
+    // When saving/printing a prescription, client may request status Completed.
+    // Rule: If the appointment is Paid (existing or incoming), then mark Completed.
+    // Otherwise mark Accepted and set paymentStatus to Due.
+    const wantsComplete = payload.status === 'Completed' || payload.printed === true || payload.print === true || payload.printAndSave === true;
+    if (wantsComplete) {
+      const isPaid = (payload.paymentStatus === 'Paid') || (existing.paymentStatus === 'Paid');
+      if (isPaid) {
+        payload.status = 'Completed';
+        payload.paymentStatus = 'Paid';
+      } else {
+        payload.status = 'Accepted';
+        payload.paymentStatus = 'Due';
+      }
+      return payload;
+    }
+
+    // If not completing, ensure paymentStatus changes don't incorrectly set Completed
+    if (typeof payload.paymentStatus !== 'undefined') {
+      if (payload.paymentStatus === 'Paid') payload.status = payload.status || 'Accepted';
+      else if (payload.paymentStatus === 'Accepted') payload.status = payload.status || 'Accepted';
+    }
+    return payload;
+  }
+
+  // status_update (generic status changes via dashboard/API)
+  if (context === 'status_update') {
+    if (typeof payload.paymentStatus !== 'undefined') {
+      // Changing payment to Paid should not auto-complete; it should set at least Accepted.
+      if (payload.paymentStatus === 'Paid') {
+        payload.status = payload.status || 'Accepted';
+      } else if (payload.paymentStatus === 'Accepted' || payload.paymentStatus === 'Due') {
+        payload.status = payload.status || 'Accepted';
+      }
+    }
+
+    // If client explicitly requests Completed, ensure payment is Paid (existing or incoming)
+    if (payload.status === 'Completed') {
+      const isPaid = payload.paymentStatus === 'Paid' || existing.paymentStatus === 'Paid';
+      if (!isPaid) {
+        payload.status = 'Accepted';
+        payload.paymentStatus = payload.paymentStatus || 'Due';
+      } else {
+        payload.paymentStatus = 'Paid';
+      }
+    }
+
+    return payload;
+  }
+
+  return payload;
+}
+
 export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   const {
     name,
@@ -111,6 +191,13 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   // price comes from doctor's consultationFee, booking price may be smaller (20% of fee) or specific
   const bookingPrice = Math.round((chosenDoctor?.consultationFee || 100) * 0.2);
 
+  // Use provided paymentStatus if present (frontend may provide), otherwise default Pending
+  const incomingPaymentStatus = req.body.paymentStatus || 'Pending';
+  // derive appointment status + paymentStatus using helper to enforce rules for creation
+  const harmonized = harmonizeStatusPayment({ incomingPayload: { paymentStatus: incomingPaymentStatus, status: req.body.status }, existingAppointment: null, context: 'create' });
+  const derivedStatus = harmonized.status;
+  const finalPaymentStatus = harmonized.paymentStatus || incomingPaymentStatus;
+
   const appointment = await Appointment.create({
     name,
     email: emailToUse,
@@ -128,11 +215,13 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     },
     hasVisited: !!hasVisited,
     address,
+  booked_by: requester ? requester._id : undefined,
+  book_by_name: requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : (req.body.user ? `${req.body.user.firstName || ''} ${req.body.user.lastName || ''}`.trim() : ''),
     doctorId: doctorIdFinal,
     patientId,
     price: bookingPrice,
-    paymentStatus: 'Pending',
-    status: 'Pending'
+    paymentStatus: finalPaymentStatus,
+    status: derivedStatus,
   });
 
   // Auto-generate invoice for this appointment
@@ -176,7 +265,9 @@ console.log("Creating invoice with items:", appointment._id);
     // proceed without failing the appointment creation
   }
 
-  res.status(200).json({ success: true, appointment, message: 'Appointment Created!' });
+  // Return populated appointment (include booked_by and invoices)
+  const populatedAppointment = await Appointment.findById(appointment._id).populate('booked_by').populate('invoices');
+  res.status(200).json({ success: true, appointment: populatedAppointment, message: 'Appointment Created!' });
 });
 
 export const getAllAppointments = catchAsyncErrors(async (req, res, next) => {
@@ -284,7 +375,10 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
     });
   }
 
-  const updated = await Appointment.findByIdAndUpdate(latest._id, payload, {
+  // Ensure payment/status consistency for patient-update route
+  const updatePayload = harmonizeStatusPayment({ incomingPayload: payload, existingAppointment: latest, context: 'prescription_save' });
+
+  const updated = await Appointment.findByIdAndUpdate(latest._id, updatePayload, {
     new: true,
     runValidators: true,
     useFindAndModify: false,
@@ -300,7 +394,11 @@ export const updateAppointmentStatus = catchAsyncErrors(
       return next(new ErrorHandler("Appointment not found!", 404));
     }
     const before = await Appointment.findById(id);
-    appointment = await Appointment.findByIdAndUpdate(id, req.body, {
+    // Harmonize incoming payload according to generic status update rules
+    const incoming = { ...req.body };
+    const updatePayload = harmonizeStatusPayment({ incomingPayload: incoming, existingAppointment: appointment, context: 'status_update' });
+
+    appointment = await Appointment.findByIdAndUpdate(id, updatePayload, {
       new: true,
       runValidators: true,
       useFindAndModify: false,

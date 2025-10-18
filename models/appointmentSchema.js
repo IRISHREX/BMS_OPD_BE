@@ -67,6 +67,14 @@ const appointmentSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  booked_by: {
+    type: mongoose.Schema.ObjectId,
+    ref: "User",
+  },
+  book_by_name: {
+    type: String,
+    default: ''
+  },
   result: {
     type: [
       {
@@ -112,7 +120,8 @@ const appointmentSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ["Pending", "Accepted"],
+    // Added 'Due' to represent payment outstanding. Values: Pending (unknown), Accepted (recorded/acknowledged), Due (payment outstanding), Paid (paid)
+    enum: ["Pending", "Accepted", "Due", "Paid"],
     default: "Pending",
   },
   doctorId: {
