@@ -9,6 +9,7 @@ import {
   updateAppointmentStatus,
   bulkDeleteAppointments,
   deleteAppointmentsByPatientId,
+  suggestPatients,
 } from "../controller/appointmentController.js";
 import {
   isAdminAuthenticated,
@@ -25,6 +26,8 @@ router.post("/post",isDashboardAuthenticated,postAppointment);
 router.get("/getall", getAllAppointments);
 router.get("/patient/:id", getAppointmentsByPatientId);
 router.get("/search", searchAppointments);
+// Suggest patients by partial name/phone/email/address for booking autosuggest
+router.get("/suggest", suggestPatients);
 router.put("/update/:id", isAdminAuthenticated, updateAppointmentStatus);
 // allow authenticated users (doctors/patients/admin) to update appointment by appointment id
 router.put("/status/:id", updateAppointmentStatus);

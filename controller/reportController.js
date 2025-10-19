@@ -3,6 +3,7 @@ import ErrorHandler from "../middlewares/error.js";
 import mongoose from "mongoose";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
+import { Report } from "../models/reportSchema.js";
 
 // Helper to parse ISO date (day start / day end)
 const parseRange = (start, end) => {
@@ -91,14 +92,18 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
       const period = groupBy === "month" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const entry = byPeriod.get(period) || { period, revenue: 0, due: 0, invoices: 0, appointments: 0 };
       const price = Number(a.price || 0) || 0;
-      // Count appointment price as revenue only when paymentStatus is Paid AND status is Completed
-      if (a.paymentStatus === 'Paid' && a.status === 'Completed') {
-        entry.revenue += price;
-        totalRevenue += price;
-      } else {
-        entry.due += price;
-        totalDue += price;
-      }
+        // Count appointment price as revenue when the appointment is Completed
+        // or explicitly marked Paid. Otherwise treat as due/receivable.
+        if (a.status === 'Completed') {
+          entry.revenue += price;
+          totalRevenue += price;
+        } else if (String(a.paymentStatus || '').trim() === 'Paid') {
+          entry.revenue += price;
+          totalRevenue += price;
+        } else {
+          entry.due += price;
+          totalDue += price;
+        }
       entry.appointments = (entry.appointments || 0) + 1;
       byPeriod.set(period, entry);
     });
@@ -109,3 +114,125 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({ success: true, totals: { revenue: totalRevenue, due: totalDue }, byPeriod: periods });
 });
+
+// List / search persisted report entries
+export const listReports = catchAsyncErrors(async (req, res, next) => {
+  const { start, end, appointmentId, q, doctorId, page = 1, limit = 50 } = req.query;
+  const filter = {};
+  if (appointmentId) filter.appointmentId = appointmentId;
+  if (doctorId) filter.doctorId = doctorId;
+  if (start || end) filter.appointmentDate = {};
+  if (start) filter.appointmentDate.$gte = new Date(start);
+  if (end) filter.appointmentDate.$lte = new Date(end);
+  if (q) {
+    const regex = new RegExp(q, 'i');
+    // search patient name/phone via join is heavier; allow appointmentId or notes search
+    filter.$or = [{ notes: regex }];
+  }
+  const skip = (Number(page) - 1) * Number(limit);
+  const total = await Report.countDocuments(filter);
+  const entries = await Report.find(filter).sort({ appointmentDate: -1 }).skip(skip).limit(Number(limit)).populate('doctorId', 'firstName lastName').populate('patientId', 'firstName lastName').lean();
+  res.status(200).json({ success: true, total, page: Number(page), limit: Number(limit), entries });
+});
+
+// Create or update a report entry (admin)
+export const upsertReport = catchAsyncErrors(async (req, res, next) => {
+  const payload = req.body;
+  if (!payload.appointmentId) return next(new ErrorHandler('appointmentId required', 400));
+  const existing = await Report.findOne({ appointmentId: payload.appointmentId });
+  if (existing) {
+    Object.assign(existing, payload);
+    await existing.save();
+    return res.status(200).json({ success: true, report: existing });
+  }
+  const created = await Report.create(payload);
+  res.status(201).json({ success: true, report: created });
+});
+
+// Update specific report entry (partial updates allowed)
+export const updateReport = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const payload = req.body;
+  const entry = await Report.findById(id);
+  if (!entry) return next(new ErrorHandler('Report entry not found', 404));
+  Object.assign(entry, payload);
+  await entry.save();
+  res.status(200).json({ success: true, report: entry });
+});
+
+// Delete report entry
+export const deleteReport = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const entry = await Report.findById(id);
+  if (!entry) return next(new ErrorHandler('Report entry not found', 404));
+  await entry.deleteOne();
+  res.status(200).json({ success: true, message: 'Report entry deleted' });
+});
+
+// Helper used by appointment flow to create/adjust report entry
+export async function upsertReportEntryForAppointment(apptId) {
+  if (!apptId) return null;
+  const appt = await Appointment.findById(apptId).populate('doctorId').populate('patientId');
+  if (!appt) return null;
+  // Determine amount to consider: prefer invoice total if invoices exist and are non-empty
+  let amount = Number(appt.price || 0);
+  if (appt.invoices && appt.invoices.length > 0) {
+    // try to fetch invoice totals (take first invoice total as canonical for this appointment)
+    try {
+      const inv = await Invoice.findOne({ _id: appt.invoices[0] });
+      if (inv) amount = Number(inv.total || inv.subtotal || amount);
+    } catch (e) {
+      // ignore and fallback to appointment.price
+    }
+  }
+
+  // paid/due logic (rules):
+  // - If appointment.status === 'Completed' => treat as Paid
+  // - Else if appointment.status === 'Accepted' => treat as Due (recorded/acknowledged but outstanding)
+  // - Else if paymentStatus === 'Paid' => treat as Paid
+  // - Otherwise treat as Due
+  let paid = 0;
+  let due = 0;
+  const ps = String(appt.paymentStatus || '').trim();
+  if (appt.status === 'Completed') {
+    paid = amount;
+    due = 0;
+  } else if (appt.status === 'Accepted') {
+    paid = 0;
+    due = amount;
+  } else if (ps === 'Paid') {
+    paid = amount;
+    due = 0;
+  } else {
+    paid = 0;
+    due = amount;
+  }
+
+  const payload = {
+    appointmentId: appt._id,
+    doctorId: appt.doctorId || null,
+    patientId: appt.patientId || null,
+    appointmentDate: appt.appointment_date || new Date(),
+    amount,
+    paid,
+    due,
+    revenue: paid, // keep backward compatibility
+    status: paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted'),
+    notes: `Auto-synced from appointment ${appt._id}`,
+  };
+
+  const existing = await Report.findOne({ appointmentId: appt._id });
+  if (existing) {
+    // update fields to match computed payload
+    existing.amount = payload.amount;
+    existing.revenue = payload.revenue;
+    existing.due = payload.due;
+    existing.status = payload.status;
+    existing.appointmentDate = payload.appointmentDate;
+    existing.notes = payload.notes;
+    await existing.save();
+    return existing;
+  }
+  const created = await Report.create(payload);
+  return created;
+}

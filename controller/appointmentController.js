@@ -4,6 +4,7 @@ import { Appointment } from "../models/appointmentSchema.js";
 import { Message } from "../models/messageSchema.js";
 import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
+import { Report } from "../models/reportSchema.js";
 
 // Helper to centralize business rules for status <-> paymentStatus
 // contexts: 'create', 'prescription_save', 'status_update'
@@ -83,6 +84,68 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
   }
 
   return payload;
+}
+
+// Helper to upsert a per-appointment report entry. Keeps logic local to avoid circular imports.
+async function syncReportForAppointment(apptId) {
+  if (!apptId) return null;
+  const appt = await Appointment.findById(apptId).populate('doctorId').populate('patientId');
+  if (!appt) return null;
+  let amount = Number(appt.price || 0);
+  if (appt.invoices && appt.invoices.length > 0) {
+    try {
+      const inv = await Invoice.findOne({ _id: appt.invoices[0] });
+      if (inv) amount = Number(inv.total || inv.subtotal || amount);
+    } catch (e) {
+      // ignore and fallback
+    }
+  }
+  // New paid/due logic (as per updated rules):
+  let paid = 0;
+  let due = 0;
+  const ps = String(appt.paymentStatus || '').trim();
+  if (appt.status === 'Completed') {
+    paid = amount;
+    due = 0;
+  } else if (appt.status === 'Accepted') {
+    paid = 0;
+    due = amount;
+  } else if (['Paid', 'Accepted'].includes(ps)) {
+    paid = amount;
+    due = 0;
+  } else if (['Pending', 'Due'].includes(ps)) {
+    paid = 0;
+    due = amount;
+  } else {
+    paid = 0;
+    due = amount;
+  }
+
+  const payload = {
+    appointmentId: appt._id,
+    doctorId: appt.doctorId || null,
+    patientId: appt.patientId || null,
+    appointmentDate: appt.appointment_date || new Date(),
+    amount,
+    paid,
+    due,
+    revenue: paid, // backward compatibility
+    status: paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted'),
+    notes: `Auto-synced from appointment ${appt._id}`,
+  };
+  const existing = await Report.findOne({ appointmentId: appt._id });
+  if (existing) {
+    existing.amount = payload.amount;
+    existing.revenue = payload.revenue;
+    existing.due = payload.due;
+    existing.status = payload.status;
+    existing.appointmentDate = payload.appointmentDate;
+    existing.notes = payload.notes;
+    await existing.save();
+    return existing;
+  }
+  const created = await Report.create(payload);
+  return created;
 }
 
 export const postAppointment = catchAsyncErrors(async (req, res, next) => {
@@ -170,12 +233,35 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     role: 'Patient'
   });
   if (!patient) {
-    let firstName = name.slice(0, name.indexOf(' '));
-    let lastName =name.slice(name.indexOf(' ') + 1) || ' ';
+    // Robust name parsing: trim, collapse spaces, split into words
+    const rawName = (name || '').toString().trim();
+    const nameParts = rawName.replace(/\s+/g, ' ').split(' ').filter(Boolean);
+    let firstName = '';
+    let lastName = '';
+
+    if (nameParts.length === 0) {
+      // No name provided: try to derive a reasonable firstName from email or phone
+      if (emailToUse) {
+        firstName = emailToUse.split('@')[0].slice(0, 20);
+      } else if (phone) {
+        firstName = `Patient-${phone.slice(-4)}`;
+      } else {
+        firstName = 'Patient';
+      }
+      lastName = '';
+    } else if (nameParts.length === 1) {
+      firstName = nameParts[0];
+      lastName = '';
+    } else {
+      firstName = nameParts[0];
+      lastName = nameParts.slice(1).join(' ');
+    }
+
     const patientPassword = password || 'defaultPassword123';
     patient = await User.create({
       firstName,
       lastName,
+      name: rawName || `${firstName} ${lastName}`.trim(),
       email: emailToUse?.toLowerCase(),
       phone,
       nic: nicToUse,
@@ -253,6 +339,13 @@ console.log("Creating invoice with items:", appointment._id);
     appointment.invoices.push(invoice._id);
     await appointment.save();
 
+    // sync report entry for this appointment
+    try {
+      await syncReportForAppointment(appointment._id);
+    } catch (e) {
+      console.warn('Failed to sync report after invoice creation:', e.message);
+    }
+
     // If client requested invoice download (query param download=true) return a simple HTML invoice as attachment
     if (req.query && req.query.download === 'true') {
       const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceNumber}</title></head><body><h1>Invoice: ${invoice.invoiceNumber}</h1><p>Patient: ${appointment.name}</p><p>Phone: ${appointment.phone}</p><p>Doctor: ${chosenDoctor.firstName} ${chosenDoctor.lastName}</p><p>Department: ${appointment.department}</p><p>Date: ${appointment.appointment_date}</p><p>Items:</p><ul>${invoice.items.map(i=>`<li>${i.description} - ${i.quantity} x ${i.unitPrice} = ${i.total}</li>`).join('')}</ul><p>Subtotal: ${invoice.subtotal}</p><p>Tax: ${invoice.tax}</p><p>Discount: ${invoice.discount}</p><p>Total: ${invoice.total} Rs</p><p>Payment Status: ${invoice.status}</p></body></html>`;
@@ -315,7 +408,7 @@ export const searchAppointments = catchAsyncErrors(async (req, res, next) => {
 
   if (q) {
     const regex = new RegExp(q, 'i');
-    andClauses.push({ $or: [ { name: regex }, { phone: regex }, { email: regex }, { nic: regex } ] });
+    andClauses.push({ $or: [ { name: regex }, { firstName: regex }, { lastName: regex }, { phone: regex }, { email: regex }, { nic: regex }, { address: regex } ] });
   }
 
   if (department) {
@@ -333,6 +426,41 @@ export const searchAppointments = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("No appointments found for given search/filters", 404));
   }
   res.status(200).json({ success: true, appointments });
+});
+
+// Suggest existing patients for autosuggest during appointment booking
+export const suggestPatients = catchAsyncErrors(async (req, res, next) => {
+  const { q, limit = 10 } = req.query;
+  if (!q || String(q).trim().length === 0) {
+    return res.status(200).json({ success: true, patients: [] });
+  }
+  const regex = new RegExp(q, 'i');
+  // search users with role Patient
+  const users = await User.find({
+    role: 'Patient',
+    $or: [ { name: regex }, { firstName: regex }, { lastName: regex }, { phone: regex }, { email: regex }, { nic: regex }, { address: regex } ]
+  }).limit(Number(limit)).select('name firstName lastName phone email address nic').lean();
+
+  // Optionally include last appointment date for each patient
+  const results = await Promise.all(users.map(async (u) => {
+    const lastAppt = await Appointment.findOne({ patientId: u._id }).sort({ appointment_date: -1 }).select('appointment_date department doctorId').lean();
+    return {
+      _id: u._id,
+      name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+      firstName: u.firstName,
+      lastName: u.lastName,
+      phone: u.phone,
+      email: u.email,
+      address: u.address,
+      nic: u.nic,
+      dob: u.dob || null,
+      gender: u.gender || null,
+      age: u.age || null,
+      lastAppointment: lastAppt ? lastAppt.appointment_date : null,
+    };
+  }));
+
+  res.status(200).json({ success: true, patients: results });
 });
 
 // Update latest appointment for a patient by patient ID
@@ -414,6 +542,12 @@ export const updateAppointmentStatus = catchAsyncErrors(
     } catch (e) {
       console.warn('Failed to create notification message:', e.message);
     }
+    // Sync report entry after status/payment update
+    try {
+      await syncReportForAppointment(appointment._id);
+    } catch (e) {
+      console.warn('Failed to sync report after appointment status update:', e.message);
+    }
 +
     res.status(200).json({
       success: true,
@@ -429,10 +563,23 @@ export const deleteAppointment = catchAsyncErrors(async (req, res, next) => {
   if (!appointment) {
     return next(new ErrorHandler("Appointment Not Found!", 404));
   }
+  // delete any invoices linked to this appointment
+  try {
+    await Invoice.deleteMany({ appointment: appointment._id });
+  } catch (e) {
+    console.warn('Failed to delete invoices for appointment', appointment._id, e.message);
+  }
+  // delete persisted report entry for this appointment
+  try {
+    await Report.deleteMany({ appointmentId: appointment._id });
+  } catch (e) {
+    console.warn('Failed to delete report entries for appointment', appointment._id, e.message);
+  }
+
   await appointment.deleteOne();
   res.status(200).json({
     success: true,
-    message: "Appointment Deleted!",
+    message: "Appointment and related invoices/reports deleted!",
   });
 });
 
@@ -442,8 +589,19 @@ export const bulkDeleteAppointments = catchAsyncErrors(async (req, res, next) =>
   if (!Array.isArray(ids) || ids.length === 0) {
     return next(new ErrorHandler("No appointment IDs provided for bulk delete", 400));
   }
+  // delete invoices and report entries associated with these appointments
+  try {
+    await Invoice.deleteMany({ appointment: { $in: ids } });
+  } catch (e) {
+    console.warn('Failed to delete invoices for bulk appointments', e.message);
+  }
+  try {
+    await Report.deleteMany({ appointmentId: { $in: ids } });
+  } catch (e) {
+    console.warn('Failed to delete report entries for bulk appointments', e.message);
+  }
   const result = await Appointment.deleteMany({ _id: { $in: ids } });
-  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments deleted" });
+  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments and related invoices/reports deleted" });
 });
 
 // Delete all appointments for a patient (to be called when deleting patient)
@@ -452,6 +610,17 @@ export const deleteAppointmentsByPatientId = catchAsyncErrors(async (req, res, n
   if (!patientId) {
     return next(new ErrorHandler("No patient ID provided", 400));
   }
+  // find appointment ids for this patient to cascade delete invoices/reports
+  const appts = await Appointment.find({ patientId }).select('_id');
+  const ids = appts.map(a => a._id);
+  try {
+    if (ids.length > 0) {
+      await Invoice.deleteMany({ appointment: { $in: ids } });
+      await Report.deleteMany({ appointmentId: { $in: ids } });
+    }
+  } catch (e) {
+    console.warn('Failed to delete invoices/reports for patient appointments', e.message);
+  }
   const result = await Appointment.deleteMany({ patientId });
-  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments for patient deleted" });
+  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments and related invoices/reports for patient deleted" });
 });
