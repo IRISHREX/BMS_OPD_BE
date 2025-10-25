@@ -2,6 +2,7 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
+import { syncReportForAppointment } from "./appointmentController.js";
 import { User } from "../models/userSchema.js";
 
 // Create invoice and attach to appointment
@@ -110,10 +111,80 @@ export const updateInvoice = catchAsyncErrors(async (req, res, next) => {
   const update = { ...req.body };
   // prevent changing invoiceNumber to empty
   if (update.invoiceNumber === '') delete update.invoiceNumber;
-
-  const invoice = await Invoice.findByIdAndUpdate(id, update, { new: true, runValidators: true, useFindAndModify: false });
+  // Load current invoice
+  let invoice = await Invoice.findById(id);
   if (!invoice) return next(new ErrorHandler('Invoice not found', 404));
-  res.status(200).json({ success: true, invoice });
+
+  // If explicit settle request: compute due and append a payment for the remaining amount
+  try {
+    const currentPaid = (invoice.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const total = Number(invoice.total || 0);
+    const dueNow = Math.max(0, total - currentPaid);
+    if (req.body && req.body._settle) {
+      if (dueNow > 0) {
+        invoice.payments = invoice.payments || [];
+        invoice.payments.push({ paidAt: new Date(), amount: dueNow, method: 'Cash', reference: 'settlement' });
+      }
+      // allow other updates in payload as well (but ignore artificial _settle flag)
+      delete update._settle;
+    }
+
+    // If client explicitly set status to 'Paid' and payments are insufficient, auto-create payment to cover difference
+    if (update.status === 'Paid') {
+      const paidNow = (invoice.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const remaining = Math.max(0, Number(invoice.total || 0) - paidNow);
+      if (remaining > 0) {
+        invoice.payments = invoice.payments || [];
+        invoice.payments.push({ paidAt: new Date(), amount: remaining, method: 'Manual', reference: 'auto-created-on-status-paid' });
+      }
+      // keep status = Paid, we'll persist below after recompute
+    }
+
+    // Apply any other updates from payload (status will be recomputed but we allow explicit override)
+    // Merge allowed fields
+    const allowed = ['invoiceNumber','items','tax','discount','dueDate','status','notes','patient','doctor','issuedAt','subtotal','total'];
+    allowed.forEach((k) => { if (typeof update[k] !== 'undefined') invoice[k] = update[k]; });
+
+    // Recompute subtotal/total via schema pre-save hook
+    await invoice.save();
+
+    // Now normalize status based on payments unless client explicitly provided a status and we choose to respect it
+    const paid = (invoice.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const totalNow = Number(invoice.total || 0);
+    let newStatus = invoice.status || 'Unpaid';
+    if (update.status && typeof update.status === 'string') {
+      // respect explicit override, but still ensure 'Paid' corresponds to payments (we may have auto-created payment above)
+      newStatus = update.status;
+    } else {
+      if (paid >= totalNow && totalNow > 0) newStatus = 'Paid';
+      else if (paid > 0 && paid < totalNow) newStatus = 'Partial';
+      else newStatus = 'Unpaid';
+    }
+    if (newStatus !== invoice.status) {
+      invoice.status = newStatus;
+      await invoice.save();
+    }
+
+    // Update linked appointment and sync report
+    if (invoice.appointment) {
+      const appt = await Appointment.findById(invoice.appointment);
+      if (appt) {
+        // set appointment.paymentStatus based on aggregate of invoices (we keep simple per-invoice behaviour for now)
+        const apptPaymentStatus = paid >= totalNow && totalNow > 0 ? 'Paid' : (paid > 0 ? 'Accepted' : 'Due');
+        if (appt.paymentStatus !== apptPaymentStatus) {
+          appt.paymentStatus = apptPaymentStatus;
+          await appt.save();
+        }
+        try { await syncReportForAppointment(appt._id); } catch (e) { console.warn('Failed to sync report after invoice update', e.message); }
+      }
+    }
+
+    invoice = await Invoice.findById(id).populate('patient doctor appointment');
+    res.status(200).json({ success: true, invoice });
+  } catch (e) {
+    console.warn('Failed to update/normalize invoice:', e.message);
+    return next(new ErrorHandler('Failed to update invoice', 500));
+  }
 });
 
 // Delete invoice and remove reference from appointment
@@ -266,10 +337,90 @@ export const updateInvoicesByAppointment = catchAsyncErrors(async (req, res, nex
     inv.total = Math.max(0, subtotal + (Number(inv.tax) || 0) - (Number(inv.discount) || 0));
 
     await inv.save();
+    // after save, normalize status based on payments
+    try {
+      const paid = (inv.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      let newStatus = inv.status || 'Unpaid';
+      if (paid >= Number(inv.total || 0) && Number(inv.total || 0) > 0) newStatus = 'Paid';
+      else if (paid > 0 && paid < Number(inv.total || 0)) newStatus = 'Partial';
+      else newStatus = 'Unpaid';
+      if (newStatus !== inv.status) {
+        inv.status = newStatus;
+        await inv.save();
+      }
+      // update linked appointment and sync report
+      if (inv.appointment) {
+        try {
+          const appt = await Appointment.findById(inv.appointment);
+          if (appt) {
+            const apptPaymentStatus = paid >= Number(inv.total || 0) && Number(inv.total || 0) > 0 ? 'Paid' : 'Due';
+            if (appt.paymentStatus !== apptPaymentStatus) {
+              appt.paymentStatus = apptPaymentStatus;
+              await appt.save();
+            }
+            await syncReportForAppointment(appt._id);
+          }
+        } catch (e) {
+          console.warn('Failed to update appointment/report after invoice bulk update:', e.message);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to normalize invoice status in bulk update:', e.message);
+    }
     updatedInvoices.push(inv);
   }
 
   res.status(200).json({ success: true, updatedCount: updatedInvoices.length, invoices: updatedInvoices });
+});
+
+// Settle all invoices for an appointment: append payments equal to remaining due for each invoice
+export const settleInvoicesForAppointment = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params; // appointment id
+  if (!id) return next(new ErrorHandler('Appointment id required', 400));
+  const invoices = await Invoice.find({ appointment: id });
+  if (!invoices || invoices.length === 0) return next(new ErrorHandler('No invoices found for this appointment', 404));
+
+  const updated = [];
+  for (const inv of invoices) {
+    try {
+      const paid = (inv.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const total = Number(inv.total || 0);
+      const due = Math.max(0, total - paid);
+      if (due > 0) {
+        inv.payments = inv.payments || [];
+        const p = { paidAt: new Date(), amount: due, method: 'Settlement', reference: 'appointment-settlement' };
+        // include createdBy if available
+        if (req.user && req.user._id) p.createdBy = req.user._id;
+        inv.payments.push(p);
+      }
+      // recompute status and save
+      const subtotal = (inv.items || []).reduce((s, it) => s + (Number(it.total) || 0), 0);
+      inv.subtotal = subtotal;
+      inv.total = Math.max(0, subtotal + (Number(inv.tax) || 0) - (Number(inv.discount) || 0));
+      const paidNow = (inv.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      if (paidNow >= Number(inv.total || 0) && Number(inv.total || 0) > 0) inv.status = 'Paid';
+      else if (paidNow > 0) inv.status = 'Partial';
+      else inv.status = 'Unpaid';
+      await inv.save();
+      updated.push(inv);
+    } catch (e) {
+      console.warn('Failed to settle invoice', inv._id, e.message);
+    }
+  }
+
+  // after settling invoices, update appointment paymentStatus to Paid and sync report
+  try {
+    const appt = await Appointment.findById(id);
+    if (appt) {
+      appt.paymentStatus = 'Paid';
+      await appt.save();
+      await syncReportForAppointment(appt._id);
+    }
+  } catch (e) {
+    console.warn('Failed to update appointment/report after settlement', e.message);
+  }
+
+  res.status(200).json({ success: true, updatedCount: updated.length, invoices: updated });
 });
 
 // Download invoice as HTML attachment (populated fields, safe fallback values)

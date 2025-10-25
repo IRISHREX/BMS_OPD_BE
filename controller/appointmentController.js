@@ -20,8 +20,9 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
     // At creation, Paid -> Accepted (do NOT auto-complete)
     if (payload.paymentStatus === 'Paid') {
       payload.status = payload.status || 'Accepted';
-    } else if (payload.paymentStatus === 'Accepted') {
-      payload.status = payload.status || 'Accepted';
+    // } else if (payload.paymentStatus === 'Accepted') {
+    //   payload.status = payload.status || 'Accepted';
+    // 
     } else {
       payload.status = payload.status || 'Pending';
     }
@@ -39,21 +40,22 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
     // Otherwise mark Accepted and set paymentStatus to Due.
     const wantsComplete = payload.status === 'Completed' || payload.printed === true || payload.print === true || payload.printAndSave === true;
     if (wantsComplete) {
-      const isPaid = (payload.paymentStatus === 'Paid') || (existing.paymentStatus === 'Paid');
+      // Treat legacy 'Accepted' as paid-equivalent for completion checks (backwards compat)
+      const isPaid = ['Paid', 'Accepted'].includes(String(payload.paymentStatus || '').trim()) || ['Paid', 'Accepted'].includes(String(existing.paymentStatus || '').trim());
       if (isPaid) {
         payload.status = 'Completed';
         payload.paymentStatus = 'Paid';
       } else {
         payload.status = 'Accepted';
-        payload.paymentStatus = 'Due';
+        payload.paymentStatus = 'Pending';
       }
       return payload;
     }
 
     // If not completing, ensure paymentStatus changes don't incorrectly set Completed
     if (typeof payload.paymentStatus !== 'undefined') {
-      if (payload.paymentStatus === 'Paid') payload.status = payload.status || 'Accepted';
-      else if (payload.paymentStatus === 'Accepted') payload.status = payload.status || 'Accepted';
+      // When frontend toggles paymentStatus, accept both 'Paid' and legacy 'Accepted' values
+      if (['Paid', 'Accepted'].includes(String(payload.paymentStatus).trim())) payload.status = payload.status || 'Accepted';
     }
     return payload;
   }
@@ -64,14 +66,14 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
       // Changing payment to Paid should not auto-complete; it should set at least Accepted.
       if (payload.paymentStatus === 'Paid') {
         payload.status = payload.status || 'Accepted';
-      } else if (payload.paymentStatus === 'Accepted' || payload.paymentStatus === 'Due') {
+      } else if (payload.paymentStatus === 'Accepted' || payload.paymentStatus === 'Pending' || payload.paymentStatus === 'Due') {
         payload.status = payload.status || 'Accepted';
       }
     }
 
     // If client explicitly requests Completed, ensure payment is Paid (existing or incoming)
     if (payload.status === 'Completed') {
-      const isPaid = payload.paymentStatus === 'Paid' || existing.paymentStatus === 'Paid';
+      const isPaid = ['Paid', 'Accepted'].includes(String(payload.paymentStatus || '').trim()) || ['Paid', 'Accepted'].includes(String(existing.paymentStatus || '').trim());
       if (!isPaid) {
         payload.status = 'Accepted';
         payload.paymentStatus = payload.paymentStatus || 'Due';
@@ -87,38 +89,51 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
 }
 
 // Helper to upsert a per-appointment report entry. Keeps logic local to avoid circular imports.
-async function syncReportForAppointment(apptId) {
+export async function syncReportForAppointment(apptId) {
   if (!apptId) return null;
   const appt = await Appointment.findById(apptId).populate('doctorId').populate('patientId');
   if (!appt) return null;
+  // Aggregate amount and paid from all linked invoices; fall back to appointment.price when none
   let amount = Number(appt.price || 0);
+  let totalPaidFromInvoices = 0;
   if (appt.invoices && appt.invoices.length > 0) {
     try {
-      const inv = await Invoice.findOne({ _id: appt.invoices[0] });
-      if (inv) amount = Number(inv.total || inv.subtotal || amount);
+      const invoices = await Invoice.find({ _id: { $in: appt.invoices } });
+      if (invoices && invoices.length > 0) {
+        // Sum totals from all invoices (prefer invoice.total, fallback to subtotal)
+        amount = invoices.reduce((s, inv) => s + (Number(inv.total || inv.subtotal || 0)), 0);
+        // Sum payments across invoices
+        totalPaidFromInvoices = invoices.reduce((s, inv) => s + ((inv.payments || []).reduce((ps, p) => ps + (Number(p.amount) || 0), 0)), 0);
+      }
     } catch (e) {
       // ignore and fallback
+      console.error("Error fetching invoices for report aggregation:", e);
     }
   }
-  // New paid/due logic (as per updated rules):
+  // Determine paid/due using invoice payments when available, otherwise fall back to appointment.paymentStatus
   let paid = 0;
   let due = 0;
-  const ps = String(appt.paymentStatus || '').trim();
-  if (appt.status === 'Completed') {
-    paid = amount;
-    due = 0;
-  } else if (appt.status === 'Accepted') {
-    paid = 0;
-    due = amount;
-  } else if (['Paid', 'Accepted'].includes(ps)) {
-    paid = amount;
-    due = 0;
-  } else if (['Pending', 'Due'].includes(ps)) {
-    paid = 0;
-    due = amount;
+  if (totalPaidFromInvoices > 0) {
+    paid = Number(totalPaidFromInvoices || 0);
+    due = Math.max(0, Number(amount || 0) - paid);
   } else {
-    paid = 0;
-    due = amount;
+    const ps = String(appt.paymentStatus || '').trim();
+    if (appt.status === 'Completed') {
+      paid = amount;
+      due = 0;
+    } else if (appt.status === 'Accepted') {
+      paid = 0;
+      due = amount;
+    } else if (['Paid', 'Accepted'].includes(ps)) {
+      paid = amount;
+      due = 0;
+    } else if (['Pending', 'Due'].includes(ps)) {
+      paid = 0;
+      due = amount;
+    } else {
+      paid = 0;
+      due = amount;
+    }
   }
 
   const payload = {
@@ -164,6 +179,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     doctorId,
     hasVisited,
     address,
+    result,
     password
     // optional, for new patient creation
   } = req.body;
@@ -184,8 +200,8 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   // Determine appointment_date default
   const apptDate = appointment_date || new Date().toISOString();
 
-  // Determine email default
-  const emailToUse = email || `${name.slice(0,4)}.${phone.slice(-2)}@BIOMECHASOFT.com`;
+  // Determine email default or create a custom mail using firstname and phone
+  const emailToUse = email || (firstName && phone ? `${firstName.toLowerCase()}.${phone.slice(-2)}@biomechasoft.com` : null);
   console.log("Using email:", emailToUse);
 
   // Determine nic/dob/age defaults: if age provided but not dob, compute dob; if dob provided but not age compute age; if nic missing generate from phone
@@ -292,6 +308,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     dob: dobDate,
     age: ageVal,
     gender,
+    result,
     appointment_date: apptDate,
     followup_date: followup_date,
     department,
@@ -322,6 +339,8 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
       { description: 'Platform Fee', quantity: 1, unitPrice: platformFee, total: platformFee },
     ];
 console.log("Creating invoice with items:", appointment._id);
+    // map legacy 'Accepted' to 'Paid' when creating invoice status
+    const normalizedInvoiceStatus = (finalPaymentStatus === 'Paid' || finalPaymentStatus === 'Accepted') ? 'Paid' : 'Unpaid';
     const invoice = await Invoice.create({
       invoiceNumber: genInvoiceNumber,
       appointment: appointment._id,
@@ -331,7 +350,7 @@ console.log("Creating invoice with items:", appointment._id);
       tax: 0,
       discount: 0,
       issuedAt: new Date(),
-      status: 'Unpaid'
+      status: normalizedInvoiceStatus,
     });
 
     // attach invoice to appointment record
@@ -451,6 +470,7 @@ export const suggestPatients = catchAsyncErrors(async (req, res, next) => {
       lastName: u.lastName,
       phone: u.phone,
       email: u.email,
+      diagnosys: u.diagnosys || null,
       address: u.address,
       nic: u.nic,
       dob: u.dob || null,
@@ -504,7 +524,9 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
   }
 
   // Ensure payment/status consistency for patient-update route
-  const updatePayload = harmonizeStatusPayment({ incomingPayload: payload, existingAppointment: latest, context: 'prescription_save' });
+  // Harmonize status/payment, then merge with the rest of the payload from the request body
+  const harmonizedStatusPayment = harmonizeStatusPayment({ incomingPayload: payload, existingAppointment: latest, context: 'prescription_save' });
+  const updatePayload = { ...payload, ...harmonizedStatusPayment };
 
   const updated = await Appointment.findByIdAndUpdate(latest._id, updatePayload, {
     new: true,
@@ -543,12 +565,42 @@ export const updateAppointmentStatus = catchAsyncErrors(
       console.warn('Failed to create notification message:', e.message);
     }
     // Sync report entry after status/payment update
+
+    // If paymentStatus transitioned to Paid, settle related invoices by creating payments
     try {
+      const prevPayment = String(before.paymentStatus || '').trim();
+      const newPayment = String(appointment.paymentStatus || '').trim();
+      if (prevPayment !== 'Paid' && newPayment === 'Paid') {
+        // settle invoices: for each invoice, append payment for remaining due
+        try {
+          const invoices = await Invoice.find({ appointment: appointment._id });
+          for (const inv of invoices) {
+            const paid = (inv.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            const total = Number(inv.total || 0);
+            const due = Math.max(0, total - paid);
+            if (due > 0) {
+              inv.payments = inv.payments || [];
+              const p = { paidAt: new Date(), amount: due, method: 'Settlement', reference: 'appointment-paid-change' };
+              if (req.user && req.user._id) p.createdBy = req.user._id;
+              inv.payments.push(p);
+              // recompute status
+              const paidNow = (inv.payments || []).reduce((s, p2) => s + (Number(p2.amount) || 0), 0);
+              if (paidNow >= Number(inv.total || 0) && Number(inv.total || 0) > 0) inv.status = 'Paid';
+              else if (paidNow > 0) inv.status = 'Partial';
+              else inv.status = 'Unpaid';
+              await inv.save();
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to auto-settle invoices after appointment set to Paid:', e.message);
+        }
+      }
+
       await syncReportForAppointment(appointment._id);
     } catch (e) {
       console.warn('Failed to sync report after appointment status update:', e.message);
     }
-+
+
     res.status(200).json({
       success: true,
       message: "Appointment Status Updated!",
