@@ -88,6 +88,13 @@ const appointmentSchema = new mongoose.Schema({
           Weight: { type: String },
           Others: { type: String },
         },
+        femaleTests: {
+          Gravida: { type: String },
+          Parity: { type: String },
+          LMP: { type: String },
+          EDD: { type: String },
+          gestationalAge: { type: String },
+        },
         medicineAdvice: {
           type: [
             {
