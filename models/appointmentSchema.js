@@ -75,17 +75,6 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  // Obstetric History
-  gravida: { type: String },
-  parity: {
-    Pa: { type: String },
-    Pb: { type: String },
-  },
-  LMP: { type: String }, // Last Menstrual Period
-  EDD: { type: String }, // Estimated Date of Delivery
-  POG: { type: String }, // Period of Gestation
-  LCB: { type: String }, // Last Child Born
-  MOD: { type: String }, // Mode of Delivery
 
   // Clinical Findings & Diagnosis
   clinicalFindings: { type: String },
@@ -103,7 +92,19 @@ const appointmentSchema = new mongoose.Schema({
     type: [
       {
         initialComplain: { type: String },
+        presentingComplaints: { type: String },
         medicalHistory: { type: String },
+        // Obstetric History
+        gravida: { type: String },
+        parity: {
+          Pa: { type: String },
+          Pb: { type: String },
+        },
+        LMP: { type: String }, // Last Menstrual Period
+        EDD: { type: String }, // Estimated Date of Delivery
+        POG: { type: String }, // Period of Gestation
+        LCB: { type: String }, // Last Child Born
+        MOD: { type: String }, // Mode of Delivery
         diagnosys: {
           BP: { type: String },
           PR: { type: String },
