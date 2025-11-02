@@ -12,7 +12,9 @@ import {
   getAdvicesList,
   getTestsList,
   suggestQuery,
-  analyzeSymptoms
+  analyzeSymptoms,
+  searchDiseaseBySymptoms,
+  advanceSearchBySymptoms,
 } from "../controller/medicalAdviceController.js";
 
 const router = express.Router();
@@ -21,6 +23,8 @@ router.post("/", createMedicalAdvice); // create
 router.post("/bulk", bulkCreateMedicalAdvice); // bulk insert
 router.get("/", getAllMedicalAdvice); // list
 router.get("/search", searchMedicalAdvice); // search with query params
+router.get("/search-disease", searchDiseaseBySymptoms); // search diseases by symptoms
+router.get("/advance-search-symptoms", advanceSearchBySymptoms); // new advanced search
 router.get("/suggestions/symptoms", getSymptomsList); // unique symptoms list
 router.get("/suggestions/advices", getAdvicesList); // advices list with optional q
 router.get("/suggestions/tests", getTestsList); // unique tests list

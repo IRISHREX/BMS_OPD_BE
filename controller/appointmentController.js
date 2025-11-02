@@ -180,7 +180,16 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     hasVisited,
     address,
     result,
-    password
+    password,
+    // New fields from Prescription/Appointment form
+    gravida,
+    parity,
+    LMP,
+    EDD,
+    POG,
+    LCB,
+    MOD,
+    clinicalFindings
     // optional, for new patient creation
   } = req.body;
   console.log("Appointment Request Body: ", req.body);
@@ -319,6 +328,14 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     hasVisited: !!hasVisited,
     address,
   booked_by: requester ? requester._id : undefined,
+  // New fields
+  gravida,
+  parity,
+  LMP,
+  EDD,
+  POG,
+  LCB,
+  MOD,
   book_by_name: requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : (req.body.user ? `${req.body.user.firstName || ''} ${req.body.user.lastName || ''}`.trim() : ''),
     doctorId: doctorIdFinal,
     patientId,
