@@ -22,6 +22,9 @@ const userSchema = new mongoose.Schema({
     required: [true, "Email Is Required!"],
     validate: [validator.isEmail, "Provide A Valid Email!"],
   },
+  qualifications:{
+    type: String,
+  },
   age: {
     type: Number,
     min: 0,
