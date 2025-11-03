@@ -94,6 +94,7 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
+        clinical_findings: { type: String },
         diagnosys_heading: { type: String },
         // Obstetric History
         gravida: { type: String },
@@ -113,6 +114,7 @@ const appointmentSchema = new mongoose.Schema({
           Temp: { type: String },
           Height: { type: String },
           Weight: { type: String },
+          BMI: { type: String },
           Others: { type: String },
         },
         femaleTests: {
