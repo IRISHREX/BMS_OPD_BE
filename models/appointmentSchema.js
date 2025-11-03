@@ -80,10 +80,13 @@ const appointmentSchema = new mongoose.Schema({
       {
         initialComplain: { type: String },
         medicalHistory: { type: String },
+        diagnosys_heading: { type: String },
         diagnosys: {
           BP: { type: String },
           Diabetics: { type: String },
+          PR: { type: String },
           SPO2: { type: String },
+          Temp: { type: String },
           Height: { type: String },
           Weight: { type: String },
           Others: { type: String },
