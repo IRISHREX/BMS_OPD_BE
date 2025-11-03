@@ -75,15 +75,39 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+
+  // Clinical Findings & Diagnosis
+  clinicalFindings: { type: String },
+  provisionalDiagnosis: {
+    type: {
+      type: String,
+      enum: ["Provisional Diagnosis", "Diagnosis", "Differential Diagnosis"],
+      default: "Provisional Diagnosis"
+    },
+    value: { type: String }
+  },
+
+
   result: {
     type: [
       {
         initialComplain: { type: String },
+        presentingComplaints: { type: String },
         medicalHistory: { type: String },
         diagnosys_heading: { type: String },
+        // Obstetric History
+        gravida: { type: String },
+        parity: {
+          Pa: { type: String },
+          Pb: { type: String },
+        },
+        LMP: { type: String }, // Last Menstrual Period
+        EDD: { type: String }, // Estimated Date of Delivery
+        POG: { type: String }, // Period of Gestation
+        LCB: { type: String }, // Last Child Born
+        MOD: { type: String }, // Mode of Delivery
         diagnosys: {
           BP: { type: String },
-          Diabetics: { type: String },
           PR: { type: String },
           SPO2: { type: String },
           Temp: { type: String },
@@ -104,10 +128,11 @@ const appointmentSchema = new mongoose.Schema({
           ],
           default: [],
         },
-          advice: {
-            type: Object,
-            default: () => ({ types: [], custom: [] })
-          },
+        advice: {
+          testAdvice: { type: Array, default: [] },
+          medication: { type: String },
+          diet: { type: String },
+        },
       },
     ],
     default: [],

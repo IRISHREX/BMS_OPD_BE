@@ -180,7 +180,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     hasVisited,
     address,
     result,
-    password
+    password,
     // optional, for new patient creation
   } = req.body;
   console.log("Appointment Request Body: ", req.body);
@@ -318,8 +318,8 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     },
     hasVisited: !!hasVisited,
     address,
-  booked_by: requester ? requester._id : undefined,
-  book_by_name: requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : (req.body.user ? `${req.body.user.firstName || ''} ${req.body.user.lastName || ''}`.trim() : ''),
+    booked_by: requester ? requester._id : undefined,
+    book_by_name: requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : (req.body.user ? `${req.body.user.firstName || ''} ${req.body.user.lastName || ''}`.trim() : ''),
     doctorId: doctorIdFinal,
     patientId,
     price: bookingPrice,

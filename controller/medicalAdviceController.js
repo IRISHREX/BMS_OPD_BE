@@ -164,9 +164,16 @@ export const bulkCreateMedicalAdvice = catchAsyncErrors(async (req, res, next) =
 
 // Return list of unique symptoms across advices
 export const getSymptomsList = catchAsyncErrors(async (req, res, next) => {
+  const { q } = req.query;
   const symptoms = await MedicalAdvice.distinct('symptoms');
-  const cleaned = (symptoms || []).filter(Boolean).map(s => String(s).trim()).sort();
-  res.status(200).json({ success: true, symptoms: cleaned });
+  let cleaned = (symptoms || []).filter(Boolean).map(s => String(s).trim()).sort();
+
+  if (q) {
+    const regex = new RegExp(q, 'i');
+    cleaned = cleaned.filter(symptom => regex.test(symptom));
+  }
+
+  res.status(200).json({ success: true, symptoms: cleaned, total: cleaned.length });
 });
 
 // Return list of advices (supports q regex query for typeahead)
@@ -284,3 +291,75 @@ export const analyzeSymptoms = catchAsyncErrors(async (req, res, next) => {
   };
   res.status(200).json({ success: true, matches: scored, suggested, topCount: top.length });
 });
+
+// Search diseases by symptoms and rank by match count
+export const searchDiseaseBySymptoms = catchAsyncErrors(
+  async (req, res, next) => {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(200).json({ success: true, results: [] });
+    }
+
+    const inputSymptoms = query
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (inputSymptoms.length === 0) {
+      return res.status(200).json({ success: true, results: [] });
+    }
+
+    const diseases = await MedicalAdvice.find({
+      symptoms: { $in: inputSymptoms.map((s) => new RegExp(s, "i")) },
+    }).lean();
+
+    const ranked = diseases.map((disease) => {
+      const diseaseSymptomsLower = (disease.symptoms || []).map((s) => s.toLowerCase());
+      const matchCount = inputSymptoms.filter((s) => diseaseSymptomsLower.includes(s)).length;
+      return { ...disease, matchCount };
+    }).filter(d => d.matchCount > 0);
+
+    ranked.sort((a, b) => b.matchCount - a.matchCount);
+
+    res.status(200).json({ success: true, results: ranked });
+  }
+);
+
+// Advance search diseases by symptoms, name, and aliases, and rank by match count
+export const advanceSearchBySymptoms = catchAsyncErrors(
+  async (req, res, next) => {
+    const { query } = req.query;
+    if (!query) {
+      return res.status(200).json({ success: true, results: [] });
+    }
+
+    const inputKeywords = query
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (inputKeywords.length === 0) {
+      return res.status(200).json({ success: true, results: [] });
+    }
+
+    const searchRegex = inputKeywords.map((s) => new RegExp(s, "i"));
+
+    const diseases = await MedicalAdvice.find({
+      $or: [
+        { symptoms: { $in: searchRegex } },
+        { name: { $in: searchRegex } },
+        { aliases: { $in: searchRegex } },
+      ],
+    }).lean();
+
+    const ranked = diseases.map((disease) => {
+      const diseaseSymptomsLower = (disease.symptoms || []).map((s) => s.toLowerCase());
+      const matchCount = inputKeywords.filter((s) => diseaseSymptomsLower.includes(s)).length;
+      return { ...disease, matchCount };
+    }).filter(d => d.matchCount > 0);
+
+    ranked.sort((a, b) => b.matchCount - a.matchCount);
+
+    res.status(200).json({ success: true, results: ranked.map(d => d.name) });
+  }
+);

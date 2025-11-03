@@ -63,7 +63,7 @@ export const login = catchAsyncErrors(async (req, res, next) => {
 });
 // Get all compounders
 export const getAllCompounders = catchAsyncErrors(async (req, res, next) => {
-  const compounders = await User.find({ role: 'Compounder' }).populate(
+    const compounders = await User.find({ role: 'Compounder' }).populate(
     "assignedDoctors",
     "firstName lastName"
   );
@@ -237,6 +237,7 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     gender,
     password,
     doctorDepartment,
+    qualifications,
   } = req.body;
   if (
     !firstName ||
@@ -282,6 +283,7 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     password,
     role: "Doctor",
     doctorDepartment,
+    qualifications,
     // docAvatar: {
     //   public_id: cloudinaryResponse.public_id,
     //   url: cloudinaryResponse.secure_url,
@@ -314,7 +316,8 @@ export const getAllDoctors = catchAsyncErrors(async (req, res, next) => {
         { lastName: regex },
         { phone: regex },
         { doctorDepartment: regex },
-        { nic: regex }
+        { nic: regex },
+        { qualifications: regex }
       ]
     });
     res.status(200).json({ success: true, doctors });
