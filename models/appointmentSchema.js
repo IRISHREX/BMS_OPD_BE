@@ -140,6 +140,10 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     required: [true, "Address Is Required!"],
   },
+  profession: {
+    type: String,
+    required: false,
+  },
   // price and payment status for appointments
   price: {
     type: Number,
