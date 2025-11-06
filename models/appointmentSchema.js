@@ -94,6 +94,8 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
+        clinical_findings: { type: String },
+        diagnosys_heading: { type: String },
         // Obstetric History
         gravida: { type: String },
         parity: {
@@ -112,7 +114,17 @@ const appointmentSchema = new mongoose.Schema({
           Temp: { type: String },
           Height: { type: String },
           Weight: { type: String },
+          BMI: { type: String },
           Others: { type: String },
+        },
+        femaleTests: {
+          Gravida: { type: String },
+          Parity: { type: String },
+          LMP: { type: String },
+          EDD: { type: String },
+          POG: { type: String },
+          LCB: { type: String }, // Last Child Born
+          MOD: { type: String }, // Mode of Delivery
         },
         medicineAdvice: {
           type: [
@@ -132,6 +144,7 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
+        followUp: { type: String},
       },
     ],
     default: [],
