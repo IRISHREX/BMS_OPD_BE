@@ -122,7 +122,9 @@ const appointmentSchema = new mongoose.Schema({
           Parity: { type: String },
           LMP: { type: String },
           EDD: { type: String },
-          gestationalAge: { type: String },
+          POG: { type: String },
+          LCB: { type: String }, // Last Child Born
+          MOD: { type: String }, // Mode of Delivery
         },
         medicineAdvice: {
           type: [
@@ -142,6 +144,7 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
+        followUp: { type: String},
       },
     ],
     default: [],
