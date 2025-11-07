@@ -22,7 +22,7 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     required: [true, "Phone Is Required!"],
     minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
-    maxLength: [11, "Phone Number Must Contain Exact 10 Digits!"],
+    maxLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
   },
   nic: {
     type: String,
@@ -37,7 +37,7 @@ const appointmentSchema = new mongoose.Schema({
   gender: {
     type: String,
     required: [true, "Gender Is Required!"],
-    enum: ["Male", "Female"],
+    enum: ["Male", "Female", "Others"],
   },
   appointment_date: {
     type: String,
@@ -152,6 +152,10 @@ const appointmentSchema = new mongoose.Schema({
   address: {
     type: String,
     required: [true, "Address Is Required!"],
+  },
+  profession: {
+    type: String,
+    required: false,
   },
   // price and payment status for appointments
   price: {
