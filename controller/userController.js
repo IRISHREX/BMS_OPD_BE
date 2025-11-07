@@ -420,6 +420,10 @@ export const getDashboardMe = catchAsyncErrors(async (req, res, next) => {
   const user = req.user;
   console.log('Dashboard user:', user);
   if (!user) return next(new ErrorHandler('User not found', 404));
+  // If user is a compounder, populate their assigned doctors
+  if (user.role === 'Compounder') {
+    await user.populate({ path: 'assignedDoctors', select: 'firstName lastName' });
+  }
   res.status(200).json({ success: true, user });
 });
 
