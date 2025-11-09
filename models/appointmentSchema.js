@@ -96,17 +96,7 @@ const appointmentSchema = new mongoose.Schema({
         medicalHistory: { type: String },
         clinical_findings: { type: String },
         diagnosys_heading: { type: String },
-        // Obstetric History
-        gravida: { type: String },
-        parity: {
-          Pa: { type: String },
-          Pb: { type: String },
-        },
-        LMP: { type: String }, // Last Menstrual Period
-        EDD: { type: String }, // Estimated Date of Delivery
-        POG: { type: String }, // Period of Gestation
-        LCB: { type: String }, // Last Child Born
-        MOD: { type: String }, // Mode of Delivery
+
         diagnosys: {
           BP: { type: String },
           PR: { type: String },
@@ -119,7 +109,10 @@ const appointmentSchema = new mongoose.Schema({
         },
         femaleTests: {
           Gravida: { type: String },
-          Parity: { type: String },
+          Parity: {
+            Pa: { type: String },
+            Pb: { type: String },
+          },
           LMP: { type: String },
           EDD: { type: String },
           POG: { type: String },
@@ -144,7 +137,7 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
-        followUp: { type: String},
+        followUp: { type: String },
       },
     ],
     default: [],
@@ -171,7 +164,7 @@ const appointmentSchema = new mongoose.Schema({
   doctorId: {
     type: mongoose.Schema.ObjectId,
     required: [true, "Doctor Id Is Invalid!"],
-    default:"68d4af0bd840a75e16364029",
+    default: "68d4af0bd840a75e16364029",
   },
   patientId: {
     type: mongoose.Schema.ObjectId,
@@ -180,7 +173,7 @@ const appointmentSchema = new mongoose.Schema({
   invoices: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' }],
   status: {
     type: String,
-    enum: ["Pending", "Accepted", "Rejected","Completed"],
+    enum: ["Pending", "Accepted", "Rejected", "Completed"],
     default: "Pending",
   },
 });
