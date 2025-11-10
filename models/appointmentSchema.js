@@ -110,8 +110,7 @@ const appointmentSchema = new mongoose.Schema({
 
         Gravida: { type: String },
         Parity: {
-          Pa: { type: String },
-          Pb: { type: String },
+          type: String, // Parity Type (e.g., G1P0, G2P1)
         },
         LMP: { type: String },
         EDD: { type: String },
