@@ -107,18 +107,17 @@ const appointmentSchema = new mongoose.Schema({
           BMI: { type: String },
           Others: { type: String },
         },
-        femaleTests: {
-          Gravida: { type: String },
-          Parity: {
-            Pa: { type: String },
-            Pb: { type: String },
-          },
-          LMP: { type: String },
-          EDD: { type: String },
-          POG: { type: String },
-          LCB: { type: String }, // Last Child Born
-          MOD: { type: String }, // Mode of Delivery
+
+        Gravida: { type: String },
+        Parity: {
+          type: String, // Parity Type (e.g., G1P0, G2P1)
         },
+        LMP: { type: String },
+        EDD: { type: String },
+        POG: { type: String },
+        LCB: { type: String }, // Last Child Born
+        MOD: { type: String }, // Mode of Delivery
+
         medicineAdvice: {
           type: [
             {
