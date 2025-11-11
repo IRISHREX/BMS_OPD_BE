@@ -136,6 +136,7 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
+        additionalAdvice: { type: String },
         followUp: { type: String },
       },
     ],
