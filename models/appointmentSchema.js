@@ -22,7 +22,7 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     required: [true, "Phone Is Required!"],
     minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
-    maxLength: [11, "Phone Number Must Contain Exact 10 Digits!"],
+    maxLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
   },
   nic: {
     type: String,
@@ -37,7 +37,7 @@ const appointmentSchema = new mongoose.Schema({
   gender: {
     type: String,
     required: [true, "Gender Is Required!"],
-    enum: ["Male", "Female"],
+    enum: ["Male", "Female", "Others"],
   },
   appointment_date: {
     type: String,
@@ -94,6 +94,8 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
+        clinical_findings: { type: String },
+        diagnosys_heading: { type: String },
         // Obstetric History
         gravida: { type: String },
         parity: {
@@ -112,7 +114,17 @@ const appointmentSchema = new mongoose.Schema({
           Temp: { type: String },
           Height: { type: String },
           Weight: { type: String },
+          BMI: { type: String },
           Others: { type: String },
+        },
+        femaleTests: {
+          Gravida: { type: String },
+          Parity: { type: String },
+          LMP: { type: String },
+          EDD: { type: String },
+          POG: { type: String },
+          LCB: { type: String }, // Last Child Born
+          MOD: { type: String }, // Mode of Delivery
         },
         medicineAdvice: {
           type: [
@@ -132,6 +144,7 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
+        followUp: { type: String},
       },
     ],
     default: [],
@@ -139,6 +152,10 @@ const appointmentSchema = new mongoose.Schema({
   address: {
     type: String,
     required: [true, "Address Is Required!"],
+  },
+  profession: {
+    type: String,
+    required: false,
   },
   // price and payment status for appointments
   price: {

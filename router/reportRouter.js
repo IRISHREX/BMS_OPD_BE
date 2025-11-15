@@ -1,5 +1,5 @@
 import express from 'express';
-import { getReportSummary, listReports, upsertReport, updateReport, deleteReport } from '../controller/reportController.js';
+import { getReportSummary, listReports, upsertReport, updateReport, deleteReport, getReportsByEmail } from '../controller/reportController.js';
 import { isAdminAuthenticated, isDashboardAuthenticated, isAuthenticatedUser } from '../middlewares/auth.js';
 
 const router = express.Router();
@@ -12,5 +12,8 @@ router.get('/', isDashboardAuthenticated, listReports);
 router.post('/', isAdminAuthenticated, upsertReport);
 router.put('/:id', isAdminAuthenticated, updateReport);
 router.delete('/:id', isAdminAuthenticated, deleteReport);
+
+// Get reports by doctor or patient email
+router.get('/by-email', isDashboardAuthenticated, getReportsByEmail);
 
 export default router;

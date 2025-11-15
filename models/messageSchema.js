@@ -21,7 +21,7 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true,
     minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
-    maxLength: [11, "Phone Number Must Contain Exact 10 Digits!"],
+    maxLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
   },
   message: {
     type: String,
@@ -40,6 +40,10 @@ const messageSchema = new mongoose.Schema({
   sentAt: {
     type: Date,
     default: Date.now,
+  },
+  recipient: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
   },
 }, { timestamps: true });
 

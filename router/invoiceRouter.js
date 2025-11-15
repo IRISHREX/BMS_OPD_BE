@@ -10,6 +10,7 @@ import {
   getInvoiceStats,
   updateInvoicesByAppointment,
   downloadInvoice,
+  getInvoicesByEmail,
 } from "../controller/invoiceController.js";
 import { isAuthenticatedUser, isDashboardAuthenticated, isAuthorized } from "../middlewares/auth.js";
 
@@ -38,6 +39,8 @@ router.get("/stats", isDashboardAuthenticated, getInvoiceStats);
 // download invoice as HTML attachment
 router.get("/:id/download", isDashboardAuthenticated, downloadInvoice);
 router.get("/:id", isDashboardAuthenticated, getInvoice);
+// Get invoices by doctor or patient email
+router.get("/by-email", isDashboardAuthenticated, getInvoicesByEmail);
 // settle invoice (make payment for remaining due)
 router.post("/:id/settle", isDashboardAuthenticated, isAuthorized('Admin','Doctor','Compounder'), async (req, res, next) => {
   // delegated to controller implementation via updateInvoice (keeps single change point)
