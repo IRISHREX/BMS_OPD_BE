@@ -480,3 +480,22 @@ function escapeHtml(str) {
     '`': '&#96;'
   }[s]));
 }
+// Get invoices by doctor or patient email
+export const getInvoicesByEmail = catchAsyncErrors(async (req, res, next) => {
+  const { email, role } = req.query;
+  if (!email || !role) return next(new ErrorHandler('Email and role are required', 400));
+  let user;
+  if (role === 'Doctor') {
+    user = await User.findOne({ email: email.toLowerCase(), role: 'Doctor' });
+    if (!user) return next(new ErrorHandler('Doctor not found', 404));
+    const invoices = await Invoice.find({ doctor: user._id }).populate('patient doctor appointment');
+    return res.status(200).json({ success: true, invoices });
+  } else if (role === 'Patient') {
+    user = await User.findOne({ email: email.toLowerCase(), role: 'Patient' });
+    if (!user) return next(new ErrorHandler('Patient not found', 404));
+    const invoices = await Invoice.find({ patient: user._id }).populate('patient doctor appointment');
+    return res.status(200).json({ success: true, invoices });
+  } else {
+    return next(new ErrorHandler('Role must be Doctor or Patient', 400));
+  }
+});

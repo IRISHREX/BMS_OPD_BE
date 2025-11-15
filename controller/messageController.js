@@ -1,16 +1,31 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Message } from '../models/messageSchema.js';
+import { User } from '../models/userSchema.js';
 
 export const sendMessage = catchAsyncErrors(async (req, res, next) => {
-  const { firstName, lastName, email, phone, message } = req.body;
+  const { firstName, lastName, email, phone, message, recipient } = req.body;
   if (!firstName || !lastName || !email || !phone || !message) {
     return next(new ErrorHandler("Please Fill Full Form!", 400));
   }
-  await Message.create({ firstName, lastName, email, phone, message, sentAt: new Date() });
+
+  const payload = { firstName, lastName, email, phone, message, sentAt: new Date() };
+  // If recipient provided, validate and attach
+  if (recipient) {
+    const recUser = await User.findById(recipient);
+    if (recUser) {
+      payload.recipient = recUser._id;
+    }
+  }
+
+  const created = await Message.create(payload);
+  // Populate recipient for consistent frontend shape
+  await created.populate('recipient');
+
   res.status(200).json({
     success: true,
     message: "Message Sent!",
+    data: created,
   });
 });
 
@@ -26,13 +41,63 @@ export const getAllMessages = catchAsyncErrors(async (req, res, next) => {
     query.$or = [ { message: r }, { email: r }, { phone: r } ];
   }
 
+  // Date filtering
+  const { filterOption, customStart, customEnd, email } = req.query;
+  if (email) {
+    const user = await User.findOne({ email });
+    if (user) {
+      query.recipient = user._id;
+    }
+  }
+  if (filterOption) {
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+    if (filterOption === 'Today') {
+      query.createdAt = { $gte: startOfToday, $lt: endOfToday };
+    } else if (filterOption === 'Old') {
+      query.createdAt = { $lt: startOfToday };
+    } else if (filterOption === 'Upcoming') {
+      query.createdAt = { $gte: endOfToday };
+    } else if (filterOption === 'Custom' && customStart && customEnd) {
+      query.createdAt = {
+        $gte: new Date(customStart),
+        $lte: new Date(customEnd),
+      };
+    }
+  }
+
+  let doctors = [];
+  // Role-based filtering
+  if (req.user.role === 'Admin') {
+    doctors = await User.find({ role: 'Doctor' });
+    if (req.query.doctorId) {
+      query.recipient = req.query.doctorId;
+    }
+  } else if (req.user.role === 'Doctor') {
+    query.recipient = req.user._id;
+    doctors = [req.user];
+  } else if (req.user.role === 'Compounder') {
+    const compounder = await User.findById(req.user._id).populate('assignedDoctors');
+    doctors = compounder.assignedDoctors;
+    const doctorIds = doctors.map(d => d._id);
+    if (req.query.doctorId && doctorIds.map(String).includes(req.query.doctorId)) {
+      query.recipient = req.query.doctorId;
+    } else {
+      query.recipient = { $in: doctorIds };
+    }
+  } else {
+    query.recipient = req.user._id;
+  }
+
   const total = await Message.countDocuments(query);
-  const messages = await Message.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit);
+  const messages = await Message.find(query).populate('recipient').sort({ createdAt: -1 }).skip(skip).limit(limit);
 
   const readCount = await Message.countDocuments({ ...query, read: true });
   const unreadCount = await Message.countDocuments({ ...query, read: false });
 
-  res.status(200).json({ success: true, messages, total, page, totalPages: Math.ceil(total/limit) || 0, readCount, unreadCount });
+  res.status(200).json({ success: true, messages, total, page, totalPages: Math.ceil(total/limit) || 0, readCount, unreadCount, doctors });
 });
 
 export const updateMessage = catchAsyncErrors(async (req, res, next) => {
@@ -57,11 +122,26 @@ export const bulkDeleteMessages = catchAsyncErrors(async (req, res, next) => {
   const result = await Message.deleteMany({ _id: { $in: ids } });
   res.status(200).json({ success: true, deletedCount: result.deletedCount });
 });
+
+export const bulkUpdateMessages = catchAsyncErrors(async (req, res, next) => {
+  const { ids, ...payload } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return next(new ErrorHandler('No ids provided', 400));
+  const result = await Message.updateMany({ _id: { $in: ids } }, { $set: payload });
+  res.status(200).json({ success: true, updatedCount: result.nModified });
+});
+
 export const getMessagesForDoctor = async (req, res, next) => {
   try {
     const doctorId = req.params.id;
-    const messages = await Message.find({ recipient: doctorId }).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, messages });
+    // Populate recipient so frontend can render recipient details (firstName/lastName)
+    const messages = await Message.find({ recipient: doctorId }).populate('recipient').sort({ createdAt: -1 });
+
+    // Provide counts and basic pagination metadata similar to getAllMessages
+    const total = messages.length;
+    const readCount = messages.filter(m => m.read).length;
+    const unreadCount = total - readCount;
+
+    res.status(200).json({ success: true, messages, total, page: 1, totalPages: 1, readCount, unreadCount });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch messages' });
   }

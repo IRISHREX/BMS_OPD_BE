@@ -160,6 +160,26 @@ export const updateReport = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({ success: true, report: entry });
 });
 
+  // Get reports by doctor or patient email
+  export const getReportsByEmail = catchAsyncErrors(async (req, res, next) => {
+    const { email, role } = req.query;
+    if (!email || !role) return next(new ErrorHandler('Email and role are required', 400));
+    let user;
+    if (role === 'Doctor') {
+      user = await mongoose.model('User').findOne({ email: email.toLowerCase(), role: 'Doctor' });
+      if (!user) return next(new ErrorHandler('Doctor not found', 404));
+      const reports = await Report.find({ doctorId: user._id }).populate('doctorId patientId');
+      return res.status(200).json({ success: true, reports });
+    } else if (role === 'Patient') {
+      user = await mongoose.model('User').findOne({ email: email.toLowerCase(), role: 'Patient' });
+      if (!user) return next(new ErrorHandler('Patient not found', 404));
+      const reports = await Report.find({ patientId: user._id }).populate('doctorId patientId');
+      return res.status(200).json({ success: true, reports });
+    } else {
+      return next(new ErrorHandler('Role must be Doctor or Patient', 400));
+    }
+  });
+
 // Delete report entry
 export const deleteReport = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
