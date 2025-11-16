@@ -11,6 +11,7 @@ import appointmentRouter from "./router/appointmentRouter.js";
 import medicalAdviceRouter from "./router/medicalAdviceRouter.js";
 import invoiceRouter from "./router/invoiceRouter.js";
 import reportRouter from "./router/reportRouter.js";
+import setupSwagger from "./utils/swagger.js";
 
 const app = express();
 config({ path: "./.env" });
@@ -49,6 +50,10 @@ app.use(
     tempFileDir: "/tmp/",
   })
 );
+
+// Swagger (OpenAPI) docs - enabled in non-production or when SWAGGER=true
+setupSwagger(app);
+
 app.use("/api/v1/message", messageRouter);
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/appointment", appointmentRouter);
