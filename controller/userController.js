@@ -209,7 +209,9 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
     // Helper function to delete an image file
     const deleteImage = (imagePath) => {
       if (imagePath) {
-        const fullPath = path.join(process.cwd(), imagePath);
+        // Strip leading slash to prevent path.join from treating it as an absolute path
+        const relativePath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+        const fullPath = path.join(process.cwd(), relativePath);
         fs.unlink(fullPath, (err) => {
           if (err) console.error(`Failed to delete image: ${fullPath}`, err);
         });
