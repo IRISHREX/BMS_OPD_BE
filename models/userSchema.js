@@ -25,6 +25,11 @@ const userSchema = new mongoose.Schema({
   qualifications:{
     type: String,
   },
+  // Doctor avatar (profile), sign image, optional header image
+  // Stored as URLs pointing to the image cache endpoints
+  docAvatar: { type: String, default: null },
+  signImage: { type: String, default: null },
+  headerImage: { type: String, default: null },
   age: {
     type: Number,
     min: 0,
@@ -37,9 +42,6 @@ const userSchema = new mongoose.Schema({
   },
   nic: {
     type: String,
-    required: [true, "NIC Is Required!"],
-    minLength: [13, "NIC Must Contain Only 13 Digits!"],
-    maxLength: [13, "NIC Must Contain Only 13 Digits!"],
   },
   dob: {
     type: Date,

@@ -3,7 +3,7 @@ import { dbConnection } from "./database/dbConnection.js";
 import { config } from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import fileUpload from "express-fileupload";
+import path from 'path';
 import { errorMiddleware } from "./middlewares/error.js";
 import messageRouter from "./router/messageRouter.js";
 import userRouter from "./router/userRouter.js";
@@ -44,12 +44,8 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  fileUpload({
-    useTempFiles: true,
-    tempFileDir: "/tmp/",
-  })
-);
+// Serve uploaded files statically so frontend can fetch them via /uploads/...
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Swagger (OpenAPI) docs - enabled in non-production or when SWAGGER=true
 setupSwagger(app);

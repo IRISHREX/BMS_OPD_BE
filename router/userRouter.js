@@ -28,6 +28,7 @@ import {
   isPatientAuthenticated,
   isDashboardAuthenticated,
 } from "../middlewares/auth.js";
+import { uploadDoctorImagesDisk as uploadDoctorImages } from "../middlewares/upload.js";
 const router = express.Router();
 
 /**
@@ -330,7 +331,7 @@ router.post('/compounder/addnew', isDashboardAuthenticated, addNewCompounder);
  *         description: Forbidden - Admin authentication required
  */
 // Only Admin can create doctors
-router.post("/doctor/addnew", isAdminAuthenticated, addNewDoctor);
+router.post("/doctor/addnew", isAdminAuthenticated, uploadDoctorImages, addNewDoctor);
 
 /**
  * @openapi
@@ -524,7 +525,7 @@ router.put('/role/:id', isAdminAuthenticated, updateUserRole);
  *       403:
  *         description: Forbidden - Admin only
  */
-router.put('/user/:id', isAdminAuthenticated, updateUserById);
+router.put('/user/:id', isAdminAuthenticated, uploadDoctorImages, updateUserById);
 router.delete('/user/:id', isAdminAuthenticated, deleteUserById);
 
 /**
@@ -723,6 +724,8 @@ router.get("/doctor/search", isAdminAuthenticated,searchDoctor);
  *               $ref: '#/components/schemas/User'
  */
 router.get("/doctor/:id", getDoctorById);
+
+
 
 /**
  * @openapi
