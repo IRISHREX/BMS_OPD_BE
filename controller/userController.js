@@ -3,7 +3,8 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { User } from "../models/userSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { generateToken } from "../utils/jwtToken.js";
-import cloudinary from "cloudinary";
+import fs from "fs";
+import path from "path";
 
 export const patientRegister = catchAsyncErrors(async (req, res, next) => {
   const { firstName, lastName, email, phone, nic, dob, gender, password } =
@@ -200,9 +201,60 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
   // Update user by ID (Admin only)
   export const updateUserById = catchAsyncErrors(async (req, res, next) => {
     const { id } = req.params;
-    const updateData = req.body;
-    const user = await User.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+    const updateData = { ...req.body };
+  
+    const user = await User.findById(id);
     if (!user) return next(new ErrorHandler('User not found', 404));
+  
+    // Helper function to delete an image file
+    const deleteImage = (imagePath) => {
+      if (imagePath) {
+        const fullPath = path.join(process.cwd(), imagePath);
+        fs.unlink(fullPath, (err) => {
+          if (err) console.error(`Failed to delete image: ${fullPath}`, err);
+        });
+      }
+    };
+  
+    // Handle removal flags for images
+    if (updateData.removeDocAvatar === 'true') {
+      deleteImage(user.docAvatar);
+      user.docAvatar = null;
+      delete updateData.removeDocAvatar;
+    }
+    if (updateData.removeSignImage === 'true') {
+      deleteImage(user.signImage);
+      user.signImage = null;
+      delete updateData.removeSignImage;
+    }
+    if (updateData.removeHeaderImage === 'true') {
+      deleteImage(user.headerImage);
+      user.headerImage = null;
+      delete updateData.removeHeaderImage;
+    }
+  
+    // If new files are uploaded, update paths and delete old files
+    if (req.files) {
+      if (req.files.docAvatar && req.files.docAvatar[0]) {
+        deleteImage(user.docAvatar);
+        user.docAvatar = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+      }
+      if (req.files.signImage && req.files.signImage[0]) {
+        deleteImage(user.signImage);
+        user.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+      }
+      if (req.files.headerImage && req.files.headerImage[0]) {
+        deleteImage(user.headerImage);
+        user.headerImage = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+      }
+    }
+  
+    // Apply other updates (non-image fields)
+    Object.keys(updateData).forEach(key => {
+      user[key] = updateData[key];
+    });
+  
+    await user.save();
     res.status(200).json({ success: true, message: 'User updated successfully', user });
   });
 
@@ -219,14 +271,6 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
     });
 
 export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
-  // if (!req.files || Object.keys(req.files).length === 0) {
-  //   return next(new ErrorHandler("Doctor Avatar Required!", 400));
-  // }
-  // const { docAvatar } = req.files;
-  // const allowedFormats = ["image/png", "image/jpeg", "image/webp"];
-  // if (!allowedFormats.includes(docAvatar.mimetype)) {
-  //   return next(new ErrorHandler("File Format Not Supported!", 400));
-  // }
   const {
     firstName,
     lastName,
@@ -239,39 +283,41 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     doctorDepartment,
     qualifications,
   } = req.body;
+
   if (
     !firstName ||
     !lastName ||
     !email ||
     !phone ||
-    !nic ||
     !dob ||
     !gender ||
     !password ||
-    !doctorDepartment 
-    // ||
-    // !docAvatar
+    !doctorDepartment
   ) {
     return next(new ErrorHandler("Please Fill Full Form!", 400));
   }
+
   const isRegistered = await User.findOne({ email });
   if (isRegistered) {
-    return next(
-      new ErrorHandler("Doctor With This Email Already Exists!", 400)
-    );
+    return next(new ErrorHandler("Doctor With This Email Already Exists!", 400));
   }
-  // const cloudinaryResponse = await cloudinary.uploader.upload(
-  //   docAvatar.tempFilePath
-  // );
-  // if (!cloudinaryResponse || cloudinaryResponse.error) {
-  //   console.error(
-  //     "Cloudinary Error:",
-  //     cloudinaryResponse.error || "Unknown Cloudinary error"
-  //   );
-  //   return next(
-  //     new ErrorHandler("Failed To Upload Doctor Avatar To Cloudinary", 500)
-  //   );
-  // }
+
+  let docAvatarUrl = null;
+  let signImageUrl = null;
+  let headerImageUrl = null;
+
+  if (req.files) {
+    if (req.files.docAvatar && req.files.docAvatar[0]) {
+      docAvatarUrl = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+    }
+    if (req.files.signImage && req.files.signImage[0]) {
+      signImageUrl = `/uploads/doctors/${req.files.signImage[0].filename}`;
+    }
+    if (req.files.headerImage && req.files.headerImage[0]) {
+      headerImageUrl = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+    }
+  }
+
   const doctor = await User.create({
     firstName,
     lastName,
@@ -284,11 +330,11 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     role: "Doctor",
     doctorDepartment,
     qualifications,
-    // docAvatar: {
-    //   public_id: cloudinaryResponse.public_id,
-    //   url: cloudinaryResponse.secure_url,
-    // },
+    docAvatar: docAvatarUrl,
+    signImage: signImageUrl,
+    headerImage: headerImageUrl,
   });
+
   res.status(200).json({
     success: true,
     message: "New Doctor Registered",
@@ -297,7 +343,8 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
 });
 
 export const getAllDoctors = catchAsyncErrors(async (req, res, next) => {
-  const doctors = await User.find({ role: 'Doctor' }).populate({ path: 'compounders', select: 'firstName lastName email' });
+  const doctors = await User.find({ role: 'Doctor' })
+    .populate({ path: 'compounders', select: 'firstName lastName email' });
   res.status(200).json({ success: true, doctors });
 });
 
@@ -403,8 +450,7 @@ export const getUserDetails = catchAsyncErrors(async (req, res, next) => {
   const user = req.user;
   res.status(200).json({
     success: true,
-    user,
-  });
+    user,});
 });
 
 // Return currently authenticated doctor (requires dashboard token and role Doctor)
