@@ -127,6 +127,7 @@ const appointmentSchema = new mongoose.Schema({
               frequency: { type: String },
               route: { type: String },
               duration: { type: String },
+              notes: { type: String },
             },
           ],
           default: [],
