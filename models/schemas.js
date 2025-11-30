@@ -423,6 +423,34 @@
  *         - email
  *         - phone
  *         - message
+ *
+ *     Medicine:
+ *       type: object
+ *       properties:
+ *         _id:
+ *           type: string
+ *           format: ObjectId
+ *         name:
+ *           type: string
+ *         composition:
+ *           type: array
+ *           items:
+ *             type: string
+ *         type:
+ *           type: string
+ *         dose:
+ *           type: string
+ *         frequency:
+ *           type: string
+ *         route:
+ *           type: string
+ *         duration:
+ *           type: string
+ *         notes:
+ *           type: string
+ *       required:
+ *         - name
+ *         - composition
  */
 
 // This file defines OpenAPI schema components for swagger-jsdoc
