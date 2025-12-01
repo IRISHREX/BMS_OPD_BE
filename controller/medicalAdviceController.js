@@ -1,3 +1,8 @@
+import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
+import ErrorHandler from "../middlewares/error.js";
+import { MedicalAdvice } from "../models/medicalAdviceSchema.js";
+import { Message } from "../models/messageSchema.js";
+
 // Get all unique symptoms, names, and medicine names as a single list
 export const getAllSuggestions = catchAsyncErrors(async (req, res, next) => {
   // Return both a flat suggestions list (tokens) and structured advice documents
@@ -44,10 +49,6 @@ export const getAllSuggestions = catchAsyncErrors(async (req, res, next) => {
   // Return both tokens and structured advices (lean documents)
   res.status(200).json({ success: true, suggestions, advices });
 });
-import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
-import ErrorHandler from "../middlewares/error.js";
-import { MedicalAdvice } from "../models/medicalAdviceSchema.js";
-import { Message } from "../models/messageSchema.js";
 
 export const createMedicalAdvice = catchAsyncErrors(async (req, res, next) => {
   const { name, symptoms, type, route, desese_description } = req.body;
