@@ -58,12 +58,53 @@ export const searchMedicineByName = catchAsyncErrors(async (req, res, next) => {
 
 export const searchMedicineByComposition = catchAsyncErrors(async (req, res, next) => {
   const { composition } = req.query;
+  if (!composition) {
+    return res.status(200).json({ success: true, medicines: [] });
+  }
+
+  const compositionTerms = composition.split(',').map(term => term.trim()).filter(Boolean);
+  if (compositionTerms.length === 0) {
+    return res.status(200).json({ success: true, medicines: [] });
+  }
+  const regexTerms = compositionTerms.map(term => new RegExp(term, 'i'));
+
   const medicines = await Medicine.aggregate([
-    { $unwind: "$composition" },
-    { $match: { composition: new RegExp(composition, 'i') } },
-    { $group: { _id: "$_id", name: { $first: "$name" }, composition: { $push: "$composition" }, matches: { $sum: 1 } } },
-    { $sort: { matches: -1 } }
+    // Match documents containing at least one of the composition terms
+    {
+      $match: {
+        composition: { $in: regexTerms }
+      }
+    },
+    // Add a field with the number of matches
+    {
+      $addFields: {
+        matches: {
+          $size: {
+            $filter: {
+              input: "$composition",
+              as: "comp",
+              cond: {
+                $or: compositionTerms.map(term => ({
+                  $regexMatch: { input: "$$comp", regex: term, options: "i" }
+                }))
+              }
+            }
+          }
+        }
+      }
+    },
+    // Filter out documents with 0 matches (though the initial $match should prevent this)
+    {
+      $match: {
+        matches: { $gt: 0 }
+      }
+    },
+    // Sort by number of matches
+    {
+      $sort: { matches: -1 }
+    }
   ]);
+
   res.status(200).json({
     success: true,
     medicines,
