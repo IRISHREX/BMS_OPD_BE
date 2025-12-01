@@ -176,6 +176,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     appointment_date,
     followup_date,
     department,
+    profession,
     doctorId,
     hasVisited,
     address,
@@ -310,6 +311,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     gender,
     result,
     appointment_date: apptDate,
+    profession,
     followup_date: followup_date,
     department,
     doctor: {

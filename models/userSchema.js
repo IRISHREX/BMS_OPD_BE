@@ -22,6 +22,14 @@ const userSchema = new mongoose.Schema({
     required: [true, "Email Is Required!"],
     validate: [validator.isEmail, "Provide A Valid Email!"],
   },
+  qualifications:{
+    type: String,
+  },
+  // Doctor avatar (profile), sign image, optional header image
+  // Stored as URLs pointing to the image cache endpoints
+  docAvatar: { type: String, default: null },
+  signImage: { type: String, default: null },
+  headerImage: { type: String, default: null },
   age: {
     type: Number,
     min: 0,
@@ -30,13 +38,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "Phone Is Required!"],
     minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
-    maxLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
+    maxLength: [11, "Phone Number Must Contain Exact 10 Digits!"],
   },
   nic: {
     type: String,
-    required: [true, "NIC Is Required!"],
-    minLength: [13, "NIC Must Contain Only 13 Digits!"],
-    maxLength: [13, "NIC Must Contain Only 13 Digits!"],
   },
   dob: {
     type: Date,
@@ -45,7 +50,7 @@ const userSchema = new mongoose.Schema({
   gender: {
     type: String,
     required: [true, "Gender Is Required!"],
-    enum: ["Male", "Female"],
+    enum: ["Male", "Female", "Others"],
   },
   password: {
     type: String,
