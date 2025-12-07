@@ -2,6 +2,26 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Medicine } from "../models/medicineSchema.js";
 
+export const addMedicines = catchAsyncErrors(async (req, res, next) => {
+  const { names, composition } = req.body;
+
+  if (!names || !composition || !Array.isArray(names) || names.length === 0) {
+    return next(new ErrorHandler("Provide at least one name and a composition!", 400));
+  }
+
+  const medicinePromises = names.map(name => {
+    return Medicine.create({ name, composition });
+  });
+
+  const medicines = await Promise.all(medicinePromises);
+
+  res.status(201).json({
+    success: true,
+    message: "Medicines added successfully!",
+    medicines,
+  });
+});
+
 export const addMedicine = catchAsyncErrors(async (req, res, next) => {
   const medicine = await Medicine.create(req.body);
   res.status(201).json({
