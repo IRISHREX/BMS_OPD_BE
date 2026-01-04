@@ -12,6 +12,7 @@ import medicalAdviceRouter from "./router/medicalAdviceRouter.js";
 import invoiceRouter from "./router/invoiceRouter.js";
 import reportRouter from "./router/reportRouter.js";
 import medicineRouter from "./router/medicineRouter.js";
+import clinicalFindingsRouter from "./router/clinicalFindingsRouter.js";
 import setupSwagger from "./utils/swagger.js";
 
 const app = express();
