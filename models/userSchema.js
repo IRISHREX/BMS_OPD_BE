@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: [true, "Email Is Required!"],
+    // required: [true, "Email Is Required!"],
     validate: [validator.isEmail, "Provide A Valid Email!"],
   },
   qualifications:{
@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: [true, "Phone Is Required!"],
+    // required: [true, "Phone Is Required!"],
     minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
     maxLength: [11, "Phone Number Must Contain Exact 10 Digits!"],
   },
@@ -45,16 +45,16 @@ const userSchema = new mongoose.Schema({
   },
   dob: {
     type: Date,
-    required: [true, "DOB Is Required!"],
+    // required: [true, "DOB Is Required!"],
   },
   gender: {
     type: String,
-    required: [true, "Gender Is Required!"],
+    // required: [true, "Gender Is Required!"],
     enum: ["Male", "Female", "Others"],
   },
   password: {
     type: String,
-    required: [true, "Password Is Required!"],
+    // required: [true, "Password Is Required!"],
     minLength: [8, "Password Must Contain At Least 8 Characters!"],
     select: false,
   },
