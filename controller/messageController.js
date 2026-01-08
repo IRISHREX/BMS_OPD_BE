@@ -4,14 +4,22 @@ import { Message } from '../models/messageSchema.js';
 import { User } from '../models/userSchema.js';
 
 export const sendMessage = catchAsyncErrors(async (req, res, next) => {
-  const { firstName, lastName, email, phone, message, recipient } = req.body;
+  const { firstName, lastName, email, phone, message, recipient, recipientEmail } = req.body;
   if (!firstName || !lastName || !email || !phone || !message) {
     return next(new ErrorHandler("Please Fill Full Form!", 400));
   }
 
   const payload = { firstName, lastName, email, phone, message, sentAt: new Date() };
-  // If recipient provided, validate and attach
-  if (recipient) {
+  
+  // If recipient email provided, find user by email
+  if (recipientEmail) {
+    const recUser = await User.findOne({ email: recipientEmail });
+    if (recUser) {
+      payload.recipient = recUser._id;
+    }
+  }
+  // If recipient ID provided, validate and attach
+  else if (recipient) {
     const recUser = await User.findById(recipient);
     if (recUser) {
       payload.recipient = recUser._id;
