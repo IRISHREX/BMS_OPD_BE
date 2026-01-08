@@ -94,7 +94,28 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
-        clinical_findings: { type: String },
+        // clinical_findings: { type: String },
+        clinical_findings: {
+          patientCondition: {
+            c1: { type: String },
+            c2: { type: String },
+            c3: { type: String },
+            c4: { type: String }
+          },
+          polar: { type: String },
+          icterus: { type: String },
+          edema: { type: String },
+          cyanosis: { type: String },
+          clubbing: { type: String },
+          lymph_nodes: { type: String },
+          chest: { type: String },
+          cvs: { type: String },
+          per_abdomen: {
+            pt: { type: String },
+            pv: { type: String },
+          },
+          others: { type: String }
+        },
         diagnosys_heading: { type: String },
 
         diagnosys: {
