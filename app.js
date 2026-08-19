@@ -3,7 +3,7 @@ import { dbConnection } from "./database/dbConnection.js";
 import { config } from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import fileUpload from "express-fileupload";
+import path from 'path';
 import { errorMiddleware } from "./middlewares/error.js";
 import messageRouter from "./router/messageRouter.js";
 import userRouter from "./router/userRouter.js";
@@ -11,6 +11,11 @@ import appointmentRouter from "./router/appointmentRouter.js";
 import medicalAdviceRouter from "./router/medicalAdviceRouter.js";
 import invoiceRouter from "./router/invoiceRouter.js";
 import reportRouter from "./router/reportRouter.js";
+import medicineRouter from "./router/medicineRouter.js";
+import clinicalFindingsRouter from "./router/clinicalFindingsRouter.js";
+import hospitalRouter from "./router/hospitalRouter.js";
+import referralRouter from "./router/referralRouter.js";
+import setupSwagger from "./utils/swagger.js";
 
 const app = express();
 config({ path: "./.env" });
@@ -43,18 +48,21 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  fileUpload({
-    useTempFiles: true,
-    tempFileDir: "/tmp/",
-  })
-);
+// Serve uploaded files statically so frontend can fetch them via /uploads/...
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// Swagger (OpenAPI) docs - enabled in non-production or when SWAGGER=true
+setupSwagger(app);
+
 app.use("/api/v1/message", messageRouter);
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/appointment", appointmentRouter);
 app.use("/api/v1/medical", medicalAdviceRouter);
 app.use("/api/v1/invoice", invoiceRouter);
 app.use("/api/v1/reports", reportRouter);
+app.use("/api/v1/medicine", medicineRouter);
+app.use("/api/v1/hospital", hospitalRouter);
+app.use("/api/v1/referral", referralRouter);
 
 // Debug endpoint to inspect request cookies, headers and authenticated user.
 // This is intentionally only enabled when not in production to avoid exposing internals.

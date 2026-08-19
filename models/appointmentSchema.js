@@ -20,9 +20,9 @@ const appointmentSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: [true, "Phone Is Required!"],
-    minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
-    maxLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
+    // required: [true, "Phone Is Required!"],
+    // minLength: [10, "Phone Number Must Contain Exact 10 Digits!"],
+    // maxLength: [11, "Phone Number Must Contain Exact 11 Digits!"],
   },
   nic: {
     type: String,
@@ -36,12 +36,12 @@ const appointmentSchema = new mongoose.Schema({
   },
   gender: {
     type: String,
-    required: [true, "Gender Is Required!"],
-    enum: ["Male", "Female"],
+    // required: [true, "Gender Is Required!"],
+    enum: ["Male", "Female", "Others"],
   },
   appointment_date: {
     type: String,
-    required: [true, "Appointment Date Is Required!"],
+    // required: [true, "Appointment Date Is Required!"],
     default: new Date().toISOString(),
   },
   followup_date: {
@@ -94,19 +94,30 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
-        clinical_findings: { type: String },
-        diagnosys_heading: { type: String },
-        // Obstetric History
-        gravida: { type: String },
-        parity: {
-          Pa: { type: String },
-          Pb: { type: String },
+        // clinical_findings: { type: String },
+        clinical_findings: {
+          patientCondition: {
+            c1: { type: String },
+            c2: { type: String },
+            c3: { type: String },
+            c4: { type: String }
+          },
+          polar: { type: String },
+          icterus: { type: String },
+          edema: { type: String },
+          cyanosis: { type: String },
+          clubbing: { type: String },
+          lymph_nodes: { type: String },
+          chest: { type: String },
+          cvs: { type: String },
+          per_abdomen: {
+            pt: { type: String },
+            pv: { type: String },
+          },
+          others: { type: String }
         },
-        LMP: { type: String }, // Last Menstrual Period
-        EDD: { type: String }, // Estimated Date of Delivery
-        POG: { type: String }, // Period of Gestation
-        LCB: { type: String }, // Last Child Born
-        MOD: { type: String }, // Mode of Delivery
+        diagnosys_heading: { type: String },
+
         diagnosys: {
           BP: { type: String },
           PR: { type: String },
@@ -117,13 +128,17 @@ const appointmentSchema = new mongoose.Schema({
           BMI: { type: String },
           Others: { type: String },
         },
-        femaleTests: {
-          Gravida: { type: String },
-          Parity: { type: String },
-          LMP: { type: String },
-          EDD: { type: String },
-          gestationalAge: { type: String },
+
+        Gravida: { type: String },
+        Parity: {
+          type: String, // Parity Type (e.g., G1P0, G2P1)
         },
+        LMP: { type: String },
+        EDD: { type: String },
+        POG: { type: String },
+        LCB: { type: String }, // Last Child Born
+        MOD: { type: String }, // Mode of Delivery
+
         medicineAdvice: {
           type: [
             {
@@ -133,6 +148,7 @@ const appointmentSchema = new mongoose.Schema({
               frequency: { type: String },
               route: { type: String },
               duration: { type: String },
+              notes: { type: String },
             },
           ],
           default: [],
@@ -142,6 +158,8 @@ const appointmentSchema = new mongoose.Schema({
           medication: { type: String },
           diet: { type: String },
         },
+        additionalAdvice: { type: String },
+        followUp: { type: String },
       },
     ],
     default: [],
@@ -149,6 +167,10 @@ const appointmentSchema = new mongoose.Schema({
   address: {
     type: String,
     required: [true, "Address Is Required!"],
+  },
+  profession: {
+    type: String,
+    required: false,
   },
   // price and payment status for appointments
   price: {
@@ -164,7 +186,7 @@ const appointmentSchema = new mongoose.Schema({
   doctorId: {
     type: mongoose.Schema.ObjectId,
     required: [true, "Doctor Id Is Invalid!"],
-    default:"68d4af0bd840a75e16364029",
+    default: "68d4af0bd840a75e16364029",
   },
   patientId: {
     type: mongoose.Schema.ObjectId,
@@ -173,7 +195,7 @@ const appointmentSchema = new mongoose.Schema({
   invoices: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' }],
   status: {
     type: String,
-    enum: ["Pending", "Accepted", "Rejected","Completed"],
+    enum: ["Pending", "Accepted", "Rejected", "Completed"],
     default: "Pending",
   },
 });
