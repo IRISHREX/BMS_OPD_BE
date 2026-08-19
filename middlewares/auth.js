@@ -89,3 +89,22 @@ export const isAuthorized = (...roles) => {
     next();
   };
 };
+
+export const isAdminOrAssignedDoctorForCompounders = catchAsyncErrors(async (req, res, next) => {
+  if (!req.user) {
+    return next(new ErrorHandler("User not found!", 404));
+  }
+
+  if (req.user.role === "Admin") {
+    return next();
+  }
+
+  if (req.user.role === "Doctor") {
+    req.compounderFilter = { role: "Compounder", assignedDoctors: req.user._id };
+    return next();
+  }
+
+  return next(
+    new ErrorHandler("Only Admins or assigned Doctors can fetch compounders.", 403)
+  );
+});

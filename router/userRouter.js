@@ -27,6 +27,8 @@ import {
   isAdminAuthenticated,
   isPatientAuthenticated,
   isDashboardAuthenticated,
+  isAuthenticatedUser,
+  isAdminOrAssignedDoctorForCompounders,
 } from "../middlewares/auth.js";
 const router = express.Router();
 
@@ -62,7 +64,7 @@ router.put("/patient/:id", updatePatientById);
 router.get("/doctor/search", isAdminAuthenticated,searchDoctor);
 router.get("/doctor/:id", getDoctorById);
 router.get("/doctors/list", getDoctorsList);
-  // Get all compounders (for admin dropdown)
-  router.get("/compounders", isAdminAuthenticated, getAllCompounders);
+  // Get all compounders (admins see all, doctors only their assigned compounders)
+  router.get("/compounders", isDashboardAuthenticated, isAdminOrAssignedDoctorForCompounders, getAllCompounders);
 
 export default router;

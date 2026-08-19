@@ -63,10 +63,17 @@ export const login = catchAsyncErrors(async (req, res, next) => {
 });
 // Get all compounders
 export const getAllCompounders = catchAsyncErrors(async (req, res, next) => {
-    const compounders = await User.find({ role: 'Compounder' }).populate(
+  const filter = { role: 'Compounder' };
+
+  if (req.user && req.user.role === 'Doctor') {
+    filter.assignedDoctors = req.user._id;
+  }
+
+  const compounders = await User.find(filter).populate(
     "assignedDoctors",
     "firstName lastName"
   );
+
   res.status(200).json({ success: true, compounders });
 });
 export const addNewAdmin = catchAsyncErrors(async (req, res, next) => {
