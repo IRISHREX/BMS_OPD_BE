@@ -391,7 +391,7 @@ export const getAllAppointments = catchAsyncErrors(async (req, res, next) => {
   if (requester && requester.role === 'Doctor') {
     query.doctorId = requester._id;
   }
-  const appointments = await Appointment.find(query);
+  const appointments = await Appointment.find(query).populate('invoices');
   res.status(200).json({
     success: true,
     appointments,

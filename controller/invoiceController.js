@@ -423,7 +423,6 @@ export const settleInvoicesForAppointment = catchAsyncErrors(async (req, res, ne
   res.status(200).json({ success: true, updatedCount: updated.length, invoices: updated });
 });
 
-// Download invoice as HTML attachment (populated fields, safe fallback values)
 export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
   const invoice = await Invoice.findById(id).populate('patient doctor appointment');
@@ -433,38 +432,122 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
   const doctor = invoice.doctor || {};
   const appointment = invoice.appointment || {};
 
-  const patientName = (patient.firstName || patient.name) ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() : (patient.email || patient.phone || 'N/A');
-  const doctorName = (doctor.firstName || doctor.lastName) ? `${doctor.firstName || ''} ${doctor.lastName || ''}`.trim() : (doctor.email || doctor.phone || 'N/A');
-  const issuedAt = invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString() : (invoice.createdAt ? new Date(invoice.createdAt).toLocaleString() : (appointment.appointment_date || '-'));
+  const patientName = (patient.firstName || patient.name) 
+    ? `${patient.firstName || ''} ${patient.lastName || ''}`.trim() 
+    : (appointment.name || patient.email || patient.phone || 'N/A');
 
-  const itemsHtml = (invoice.items || []).map(i => `<li>${escapeHtml(i.description || '')} - ${escapeHtml(String(i.quantity))} x ${escapeHtml(String(i.unitPrice))} = ${escapeHtml(String(i.total))}</li>`).join('');
+  let docObj = doctor;
+  if (!docObj.firstName && !docObj.lastName && appointment.doctor) {
+    docObj = appointment.doctor;
+  }
+  const rawDocName = (docObj.firstName || docObj.lastName) 
+    ? `${docObj.firstName || ''} ${docObj.lastName || ''}`.trim() 
+    : (docObj.name || 'N/A');
+  const doctorName = rawDocName !== 'N/A' && !rawDocName.toLowerCase().startsWith('dr') 
+    ? `Dr. ${rawDocName}` 
+    : rawDocName;
+
+  const department = appointment.department || docObj.doctorDepartment || 'N/A';
+  const issuedAt = invoice.issuedAt 
+    ? new Date(invoice.issuedAt).toLocaleString() 
+    : (invoice.createdAt ? new Date(invoice.createdAt).toLocaleString() : (appointment.appointment_date || '-'));
 
   const html = `<!doctype html>
   <html>
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>Invoice ${escapeHtml(invoice.invoiceNumber || '')}</title>
-      <style>body{font-family:Arial,Helvetica,sans-serif;padding:20px}h1{margin-bottom:0}p{margin:4px 0}ul{padding-left:20px}</style>
+      <title>Receipt ${escapeHtml(invoice.invoiceNumber || '')}</title>
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #2d3748; max-width: 650px; margin: 0 auto; line-height: 1.5; }
+        .receipt-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); background: #ffffff; }
+        .header { text-align: center; border-bottom: 2px solid #edf2f7; padding-bottom: 16px; margin-bottom: 20px; }
+        .header h1 { margin: 0; color: #1a202c; font-size: 22px; }
+        .header p { margin: 4px 0 0; color: #718096; font-size: 14px; }
+        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; font-size: 14px; }
+        .detail-item strong { color: #4a5568; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+        .table-section { margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th { background: #f7fafc; padding: 10px; text-align: left; border-bottom: 2px solid #edf2f7; color: #4a5568; }
+        td { padding: 10px; border-bottom: 1px solid #edf2f7; }
+        .totals { text-align: right; margin-top: 16px; font-size: 14px; }
+        .totals .grand-total { font-size: 18px; font-weight: bold; color: #2b6cb0; margin-top: 8px; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e6fffa; color: #234e52; }
+      </style>
     </head>
     <body>
-      <h1>Invoice ${escapeHtml(invoice.invoiceNumber || '')}</h1>
-      <p><strong>Patient:</strong> ${escapeHtml(patientName || 'N/A')}</p>
-      <p><strong>Email/Phone:</strong> ${escapeHtml(patient.email || patient.phone || 'N/A')}</p>
-      <p><strong>Doctor:</strong> ${escapeHtml(doctorName)}</p>
-      <p><strong>Date:</strong> ${escapeHtml(issuedAt || '-')}</p>
-      <h3>Items:</h3>
-      <ul>${itemsHtml}</ul>
-      <p><strong>Subtotal:</strong> ${escapeHtml(String(invoice.subtotal || 0))}</p>
-      <p><strong>Tax:</strong> ${escapeHtml(String(invoice.tax || 0))}</p>
-      <p><strong>Discount:</strong> ${escapeHtml(String(invoice.discount || 0))}</p>
-      <p><strong>Total:</strong> ${escapeHtml(String(invoice.total || 0))}</p>
-      <p><strong>Payment Status:</strong> ${escapeHtml(invoice.status || 'N/A')}</p>
+      <div class="receipt-card">
+        <div class="header">
+          <h1>Medical Appointment Receipt</h1>
+          <p>Receipt #: ${escapeHtml(invoice.invoiceNumber || invoice._id || '')}</p>
+        </div>
+        <div class="details-grid">
+          <div class="detail-item">
+            <strong>Patient Name</strong>
+            <span>${escapeHtml(patientName)}</span>
+          </div>
+          <div class="detail-item">
+            <strong>Doctor Name</strong>
+            <span>${escapeHtml(doctorName)}</span>
+          </div>
+          <div class="detail-item">
+            <strong>Department</strong>
+            <span>${escapeHtml(department)}</span>
+          </div>
+          <div class="detail-item">
+            <strong>Date & Time</strong>
+            <span>${escapeHtml(issuedAt)}</span>
+          </div>
+          <div class="detail-item">
+            <strong>Phone / Contact</strong>
+            <span>${escapeHtml(patient.phone || appointment.phone || 'N/A')}</span>
+          </div>
+          <div class="detail-item">
+            <strong>Payment Status</strong>
+            <span class="badge">${escapeHtml(invoice.status || appointment.paymentStatus || 'Paid')}</span>
+          </div>
+        </div>
+
+        <div class="table-section">
+          <h3>Fee Details</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th style="text-align:center">Qty</th>
+                <th style="text-align:right">Price</th>
+                <th style="text-align:right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(invoice.items && invoice.items.length > 0) ? invoice.items.map(i => `
+                <tr>
+                  <td>${escapeHtml(i.description || 'Consultation Fee')}</td>
+                  <td style="text-align:center">${escapeHtml(String(i.quantity || 1))}</td>
+                  <td style="text-align:right">₹${escapeHtml(String(i.unitPrice || invoice.total || 0))}</td>
+                  <td style="text-align:right">₹${escapeHtml(String(i.total || invoice.total || 0))}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td>Consultation Fee</td>
+                  <td style="text-align:center">1</td>
+                  <td style="text-align:right">₹${escapeHtml(String(invoice.total || appointment.price || 0))}</td>
+                  <td style="text-align:right">₹${escapeHtml(String(invoice.total || appointment.price || 0))}</td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="totals">
+          <div class="grand-total">Total Payable: ₹${escapeHtml(String(invoice.total || appointment.price || 0))}</div>
+        </div>
+      </div>
     </body>
   </html>`;
 
   res.setHeader('Content-Type', 'text/html');
-  res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice._id}.html"`);
+  res.setHeader('Content-Disposition', `inline; filename="receipt-${invoice._id}.html"`);
   res.status(200).send(html);
 });
 
