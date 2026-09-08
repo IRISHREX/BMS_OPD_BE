@@ -29,16 +29,25 @@ const frontendOrigins = [
   process.env.FRONTEND_URL_PROD,
   process.env.FRONTEND_URL_PROD_TWO,
 ].filter(Boolean);
-app.use(
-  // Allow all origins by reflecting the request origin. This supports cookies
-  // (credentials: true) while avoiding literal '*' in Access-Control-Allow-Origin.
-  cors({
-    origin: true,
-    methods: ["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
-    credentials: true,
-  })
-);
+// Custom CORS middleware: reflect the `Origin` header so any origin can access.
+// If an `Origin` header is present we echo it back and allow credentials.
+// If no Origin is present, we fallback to '*'.
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.use(cookieParser());
 app.use(express.json());
