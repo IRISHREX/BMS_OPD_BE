@@ -30,16 +30,12 @@ const frontendOrigins = [
   process.env.FRONTEND_URL_PROD_TWO,
 ].filter(Boolean);
 app.use(
+  // Allow all origins by reflecting the request origin. This supports cookies
+  // (credentials: true) while avoiding literal '*' in Access-Control-Allow-Origin.
   cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl, server-to-server)
-      if (!origin) return callback(null, true);
-      if (frontendOrigins.indexOf(origin) !== -1) return callback(null, true);
-      // Log blocked origin for easier debugging
-      console.warn('CORS blocked origin:', origin);
-      return callback(new Error('CORS policy: This origin is not allowed - ' + origin));
-    },
-    methods: ["GET", "POST", "DELETE", "PUT", "OPTIONS"],
+    origin: true,
+    methods: ["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
     credentials: true,
   })
 );
