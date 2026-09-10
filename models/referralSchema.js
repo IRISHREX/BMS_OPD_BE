@@ -2,15 +2,34 @@ import mongoose from "mongoose";
 
 const referralSchema = new mongoose.Schema(
   {
+    // Referral Type: patient_request (Inbound booking) vs doctor_referral (Outbound transfer)
+    referralType: {
+      type: String,
+      enum: ["patient_request", "doctor_referral"],
+      default: "patient_request",
+    },
+
     // Patient Information
     patientId: {
       type: mongoose.Schema.ObjectId,
       ref: "User",
-      required: [true, "Patient ID is required"],
+      required: false,
     },
     patientName: {
       type: String,
       required: [true, "Patient name is required"],
+    },
+    patientPhone: {
+      type: String,
+      required: false,
+    },
+    patientEmail: {
+      type: String,
+      required: false,
+    },
+    patientAddress: {
+      type: String,
+      required: false,
     },
     age: {
       type: Number,
@@ -19,7 +38,7 @@ const referralSchema = new mongoose.Schema(
     gender: {
       type: String,
       enum: ["male", "female", "other", "Male", "Female", "Other"],
-      set: (v) => v.toLowerCase(),
+      set: (v) => (v ? v.toLowerCase() : "male"),
       default: "male",
     },
     abhaId: {
@@ -31,14 +50,75 @@ const referralSchema = new mongoose.Schema(
       required: false,
     },
 
+    // Applicant Information (Who requested the appointment/referral)
+    applicantBy: {
+      type: String,
+      default: "Self",
+    },
+    applicantPhone: {
+      type: String,
+      required: false,
+    },
+    applicantEmail: {
+      type: String,
+      required: false,
+    },
+
+    // Target Doctor Information (For inbound patient booking referrals)
+    targetDoctorId: {
+      type: mongoose.Schema.ObjectId,
+      ref: "User",
+      required: false,
+    },
+    targetDoctorName: {
+      type: String,
+      required: false,
+    },
+    targetDoctorSpecialty: {
+      type: String,
+      required: false,
+    },
+    department: {
+      type: String,
+      default: "General",
+    },
+    appointmentDate: {
+      type: Date,
+      required: false,
+    },
+    appointmentSlot: {
+      type: String,
+      required: false,
+    },
+
+    // Conversion tracking to official Appointment
+    convertedToAppointment: {
+      type: Boolean,
+      default: false,
+    },
+    appointmentId: {
+      type: mongoose.Schema.ObjectId,
+      ref: "Appointment",
+      required: false,
+    },
+    convertedAt: {
+      type: Date,
+      required: false,
+    },
+    convertedBy: {
+      type: mongoose.Schema.ObjectId,
+      ref: "User",
+      required: false,
+    },
+
     // Clinical Information
     diagnosis: {
       type: String,
-      required: [true, "Diagnosis is required"],
+      default: "Consultation Request",
     },
     clinicalNotes: {
       type: String,
-      required: [true, "Clinical notes are required"],
+      default: "Appointment requested by patient/applicant",
     },
     requiredCare: {
       type: String,

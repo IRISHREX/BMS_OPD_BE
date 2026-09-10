@@ -1,6 +1,8 @@
 import express from "express";
 import {
   createReferral,
+  bookPatientReferral,
+  convertToAppointment,
   getAllReferrals,
   getReferralById,
   updateReferral,
@@ -17,11 +19,19 @@ import { isDashboardAuthenticated } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// Create referral (protected)
+// Public / Patient Booking: Book appointment as an inbound referral for a doctor
+router.post("/book", bookPatientReferral);
+
+// Convert Inbound Referral to Official Appointment (Admin, Doctor, Compounder)
+router.post("/:id/convert-to-appointment", isDashboardAuthenticated, convertToAppointment);
+router.post("/convert-to-appointment/:id", isDashboardAuthenticated, convertToAppointment);
+
+// Create referral (Doctor outbound referral to hospital/clinic)
 router.post("/create", isDashboardAuthenticated, createReferral);
 
 // Get all referrals with filters
 router.get("/all", isDashboardAuthenticated, getAllReferrals);
+router.get("/getall", isDashboardAuthenticated, getAllReferrals);
 
 // Search referrals
 router.get("/search", isDashboardAuthenticated, searchReferrals);
