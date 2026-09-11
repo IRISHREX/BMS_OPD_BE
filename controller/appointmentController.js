@@ -678,3 +678,93 @@ export const deleteAppointmentsByPatientId = catchAsyncErrors(async (req, res, n
   const result = await Appointment.deleteMany({ patientId });
   res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments and related invoices/reports for patient deleted" });
 });
+
+// Full update appointment by ID
+export const updateAppointmentById = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  let appointment = await Appointment.findById(id);
+  if (!appointment) {
+    return next(new ErrorHandler("Appointment not found!", 404));
+  }
+
+  const {
+    name,
+    patientName,
+    phone,
+    patientPhone,
+    email,
+    age,
+    patientAge,
+    gender,
+    patientGender,
+    address,
+    patientAddress,
+    department,
+    doctorId,
+    appointmentDate,
+    appointment_date,
+    slotTime,
+    price,
+    paymentStatus,
+    status,
+    profession,
+  } = req.body;
+
+  if (name || patientName) appointment.name = (name || patientName).trim();
+  if (phone || patientPhone) appointment.phone = phone || patientPhone;
+  if (email) appointment.email = email;
+  if (age !== undefined || patientAge !== undefined) appointment.age = Number(age ?? patientAge);
+  if (gender || patientGender) appointment.gender = gender || patientGender;
+  if (address || patientAddress) appointment.address = address || patientAddress;
+  if (department) appointment.department = department;
+  if (profession) appointment.profession = profession;
+  if (price !== undefined) appointment.price = Number(price);
+
+  if (doctorId && String(doctorId) !== String(appointment.doctorId)) {
+    try {
+      const doc = await User.findById(doctorId);
+      if (doc) {
+        appointment.doctorId = doc._id;
+        appointment.doctor = {
+          firstName: doc.firstName || "Dr.",
+          lastName: doc.lastName || "Physician",
+        };
+        if (!price && (doc.consultationFee || doc.visitingFee || doc.fees)) {
+          appointment.price = doc.consultationFee || doc.visitingFee || doc.fees;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not find doctor by id:", doctorId);
+    }
+  }
+
+  if (appointment_date || appointmentDate) {
+    const d = appointment_date || appointmentDate;
+    appointment.appointment_date = new Date(d).toISOString();
+  }
+
+  if (slotTime) {
+    appointment.slotTime = slotTime;
+  }
+
+  if (status) {
+    appointment.status = status;
+  }
+
+  if (paymentStatus) {
+    // If appointment is Completed and already Paid, do not revert to Due
+    if (appointment.status === 'Completed' && appointment.paymentStatus === 'Paid' && paymentStatus === 'Due') {
+      // keep Paid
+    } else {
+      appointment.paymentStatus = paymentStatus;
+    }
+  }
+
+  await appointment.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Appointment updated successfully",
+    appointment,
+  });
+});

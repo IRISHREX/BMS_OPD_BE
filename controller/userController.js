@@ -280,9 +280,10 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
     });
 
 export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
-  const {
+  let {
     firstName,
     lastName,
+    name,
     email,
     phone,
     nic,
@@ -290,21 +291,33 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     gender,
     password,
     doctorDepartment,
+    specialization,
     qualifications,
+    visitingFee,
+    consultationFee,
+    compounderId,
+    compounderName,
   } = req.body;
 
-  if (
-    !firstName ||
-    !lastName ||
-    !email ||
-    !phone ||
-    !dob ||
-    !gender ||
-    !password ||
-    !doctorDepartment
-  ) {
-    return next(new ErrorHandler("Please Fill Full Form!", 400));
+  if (!firstName && name) {
+    const parts = name.trim().split(" ");
+    firstName = parts[0];
+    lastName = parts.slice(1).join(" ");
   }
+
+  if (!firstName || !email) {
+    return next(new ErrorHandler("Doctor Name and Email are required!", 400));
+  }
+
+  if (!lastName) {
+    lastName = "Physician";
+  }
+
+  phone = phone || "1234567890";
+  gender = gender || "Male";
+  dob = dob || new Date("1988-01-01");
+  password = password || "Doctor@123";
+  doctorDepartment = doctorDepartment || "General Medicine";
 
   const isRegistered = await User.findOne({ email });
   if (isRegistered) {
@@ -327,26 +340,88 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     }
   }
 
+  const compoundersList = [];
+  if (compounderId) {
+    compoundersList.push(compounderId);
+  }
+
   const doctor = await User.create({
     firstName,
     lastName,
     email,
     phone,
-    nic,
+    nic: nic || "0000000000000",
     dob,
     gender,
     password,
     role: "Doctor",
     doctorDepartment,
-    qualifications,
+    specialization: specialization || doctorDepartment,
+    qualifications: qualifications || "MBBS",
+    consultationFee: Number(consultationFee || visitingFee || 500),
     docAvatar: docAvatarUrl,
     signImage: signImageUrl,
     headerImage: headerImageUrl,
+    compounders: compoundersList,
   });
 
   res.status(200).json({
     success: true,
     message: "New Doctor Registered",
+    doctor,
+  });
+});
+
+export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  let doctor = await User.findById(id);
+  if (!doctor || doctor.role !== "Doctor") {
+    return next(new ErrorHandler("Doctor not found!", 404));
+  }
+
+  const {
+    firstName,
+    lastName,
+    name,
+    email,
+    phone,
+    doctorDepartment,
+    specialization,
+    qualifications,
+    visitingFee,
+    consultationFee,
+    gender,
+    compounderId,
+    compounders,
+  } = req.body;
+
+  if (name) {
+    const parts = name.trim().split(" ");
+    doctor.firstName = parts[0];
+    if (parts.length > 1) doctor.lastName = parts.slice(1).join(" ");
+  }
+  if (firstName) doctor.firstName = firstName;
+  if (lastName) doctor.lastName = lastName;
+  if (email) doctor.email = email;
+  if (phone) doctor.phone = phone;
+  if (doctorDepartment) doctor.doctorDepartment = doctorDepartment;
+  if (specialization) doctor.specialization = specialization;
+  if (qualifications) doctor.qualifications = qualifications;
+  if (gender) doctor.gender = gender;
+  if (consultationFee !== undefined || visitingFee !== undefined) {
+    doctor.consultationFee = Number(consultationFee ?? visitingFee);
+  }
+  if (compounderId) {
+    doctor.compounders = [compounderId];
+  } else if (compounders && Array.isArray(compounders)) {
+    doctor.compounders = compounders;
+  }
+
+  await doctor.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Doctor details updated successfully",
     doctor,
   });
 });
@@ -438,12 +513,77 @@ export const updatePatientById = catchAsyncErrors(async (req, res, next) => {
 // Get doctor by ID
 export const getDoctorById = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const doctor = await User.findOne({ _id: id, role: "Doctor" });
+  const doctor = await User.findOne({ _id: id, role: "Doctor" }).populate("compounders", "firstName lastName email phone");
   if (!doctor) {
     return next(new ErrorHandler("Doctor not found!", 404));
   }
   res.status(200).json({
     success: true,
+    doctor,
+  });
+});
+
+// Update doctor by ID
+export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const doctor = await User.findOne({ _id: id, role: "Doctor" });
+  if (!doctor) {
+    return next(new ErrorHandler("Doctor not found!", 404));
+  }
+
+  const {
+    name,
+    firstName,
+    lastName,
+    email,
+    phone,
+    gender,
+    age,
+    doctorDepartment,
+    specialization,
+    qualifications,
+    visitingFee,
+    consultationFee,
+    compounderId,
+    compounderName,
+  } = req.body;
+
+  if (name) {
+    const parts = name.trim().split(" ");
+    doctor.firstName = parts[0] || "Dr.";
+    doctor.lastName = parts.slice(1).join(" ") || doctor.lastName || "Physician";
+    doctor.name = name.trim();
+  } else {
+    if (firstName) doctor.firstName = firstName.trim();
+    if (lastName) doctor.lastName = lastName.trim();
+  }
+
+  if (email) doctor.email = email.trim();
+  if (phone) doctor.phone = phone.trim();
+  if (gender) doctor.gender = gender;
+  if (age) doctor.age = Number(age);
+  if (doctorDepartment) doctor.doctorDepartment = doctorDepartment;
+  if (specialization) doctor.specialization = specialization;
+  if (qualifications) doctor.qualifications = qualifications;
+  if (visitingFee !== undefined || consultationFee !== undefined) {
+    const fee = Number(visitingFee ?? consultationFee);
+    doctor.visitingFee = fee;
+    doctor.consultationFee = fee;
+  }
+
+  if (compounderId) {
+    if (!doctor.compounders) doctor.compounders = [];
+    const compStr = String(compounderId);
+    if (!doctor.compounders.some(c => String(c) === compStr)) {
+      doctor.compounders.push(compounderId);
+    }
+  }
+
+  await doctor.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Doctor updated successfully!",
     doctor,
   });
 });

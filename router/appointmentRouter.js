@@ -7,6 +7,7 @@ import {
   searchAppointments,
   updateAppointmentByPatientId,
   updateAppointmentStatus,
+  updateAppointmentById,
   bulkDeleteAppointments,
   deleteAppointmentsByPatientId,
   suggestPatients,
@@ -224,7 +225,8 @@ router.get("/suggest", suggestPatients);
  *       403:
  *         description: Forbidden - Admin only
  */
-router.put("/update/:id", isAdminAuthenticated, updateAppointmentStatus);
+router.put("/update/:id", isDashboardAuthenticated, updateAppointmentById);
+router.put("/edit/:id", isDashboardAuthenticated, updateAppointmentById);
 
 /**
  * @openapi

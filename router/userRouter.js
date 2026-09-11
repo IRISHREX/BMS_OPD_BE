@@ -21,6 +21,7 @@ import {
   updateUserRole,
   deleteUserById,
   updateUserById,
+  updateDoctorById,
   searchDoctor,
 } from "../controller/userController.js";
 import {
@@ -359,6 +360,8 @@ router.post("/doctor/addnew", isAdminAuthenticated, uploadDoctorImages, addNewDo
  *                     $ref: '#/components/schemas/User'
  */
 router.get("/doctors", getAllDoctors);
+router.put("/doctor/update/:id", isDashboardAuthenticated, updateDoctorById);
+router.put("/doctor/:id", isDashboardAuthenticated, updateDoctorById);
 
 /**
  * @openapi
@@ -750,5 +753,9 @@ router.get("/doctor/:id", getDoctorById);
 router.get("/doctors/list", getDoctorsList);
   // Get all compounders (admins see all, doctors only their assigned compounders)
   router.get("/compounders", isDashboardAuthenticated, isAdminOrAssignedDoctorForCompounders, getAllCompounders);
+
+  // Update doctor by ID
+  router.put("/doctor/update/:id", isDashboardAuthenticated, updateDoctorById);
+  router.put("/doctor/:id", isDashboardAuthenticated, updateDoctorById);
 
 export default router;

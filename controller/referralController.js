@@ -3,6 +3,7 @@ import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
+import { syncReportForAppointment } from "./appointmentController.js";
 
 // Create Referral (Doctor Outbound Referral to Hospital / Clinic)
 export const createReferral = catchAsyncErrors(async (req, res, next) => {
@@ -111,10 +112,12 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     appointmentDate,
     appointmentSlot,
     applicantBy,
+    applicantName,
     applicantPhone,
     applicantEmail,
     symptoms,
     clinicalNotes,
+    urgency,
   } = req.body;
 
   if (!patientName) {
@@ -149,6 +152,7 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     nic: nic || "",
     abhaId: abhaId || "",
     applicantBy: applicantBy || "Self",
+    applicantName: applicantName || (applicantBy === "Self" ? patientName : "Applicant"),
     applicantPhone: applicantPhone || patientPhone || "",
     applicantEmail: applicantEmail || patientEmail || "",
     targetDoctorId: targetDoctorId || undefined,
@@ -159,11 +163,11 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     appointmentSlot: appointmentSlot || "10:00 AM",
     diagnosis: symptoms || "General Consultation Request",
     clinicalNotes: clinicalNotes || symptoms || "Patient self-referral / appointment request",
-    urgency: "routine",
+    urgency: urgency || "routine",
     status: "submitted",
     convertedToAppointment: false,
     referredBy: req.user?._id || undefined,
-    referredByName: applicantBy || "Patient Request",
+    referredByName: applicantName || applicantBy || "Patient Request",
   });
 
   await referral.save();
@@ -193,10 +197,11 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
     });
   }
 
-  // Determine doctor details
+  // Determine doctor details and doctor consultation fee
   let doctorFirstName = "Dr.";
   let doctorLastName = "Practitioner";
   let docId = referral.targetDoctorId;
+  let doctorFees = 500;
 
   if (docId) {
     try {
@@ -204,6 +209,7 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
       if (doc) {
         doctorFirstName = doc.firstName || "Dr.";
         doctorLastName = doc.lastName || "Physician";
+        doctorFees = doc.consultationFee || doc.fees || doc.visitingFee || 500;
       }
     } catch (e) {
       console.warn("Doctor lookup failed:", e);
@@ -217,6 +223,7 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
     doctorFirstName = req.user.firstName || "Dr.";
     doctorLastName = req.user.lastName || "Physician";
     docId = req.user._id;
+    doctorFees = req.user.consultationFee || req.user.fees || req.user.visitingFee || 500;
   }
 
   const appointmentDateStr = referral.appointmentDate
@@ -236,6 +243,8 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
       lastName: doctorLastName,
     },
     doctorId: docId || req.user?._id,
+    price: doctorFees,
+    paymentStatus: "Due",
     hasVisited: false,
     address: referral.patientAddress || "Local OPD Patient",
     status: "Accepted",
@@ -250,6 +259,12 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
   });
 
   await newAppointment.save();
+
+  try {
+    await syncReportForAppointment(newAppointment._id);
+  } catch (e) {
+    console.warn("Failed to sync report for converted appointment:", e.message);
+  }
 
   referral.convertedToAppointment = true;
   referral.appointmentId = newAppointment._id;

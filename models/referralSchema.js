@@ -55,6 +55,10 @@ const referralSchema = new mongoose.Schema(
       type: String,
       default: "Self",
     },
+    applicantName: {
+      type: String,
+      required: false,
+    },
     applicantPhone: {
       type: String,
       required: false,

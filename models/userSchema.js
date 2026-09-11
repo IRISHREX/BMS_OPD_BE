@@ -66,10 +66,17 @@ const userSchema = new mongoose.Schema({
   doctorDepartment:{
     type: String,
   },
+  specialization: {
+    type: String,
+  },
+  visitingFee: {
+    type: Number,
+    default: 500,
+  },
   // consultation fee for doctors
   consultationFee: {
     type: Number,
-    default: 100,
+    default: 500,
   },
   // If this user is a Doctor, store assigned compounder user ids
   compounders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
