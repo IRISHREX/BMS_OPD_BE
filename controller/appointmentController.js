@@ -5,6 +5,7 @@ import { Message } from "../models/messageSchema.js";
 import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Report } from "../models/reportSchema.js";
+import { Referral } from "../models/referralSchema.js";
 
 // Helper to centralize business rules for status <-> paymentStatus
 // contexts: 'create', 'prescription_save', 'status_update'
@@ -562,6 +563,82 @@ export const updateAppointmentStatus = catchAsyncErrors(
       if (prevStatus !== newStatus) {
         const text = `Your appointment scheduled on ${appointment.appointment_date} is now ${newStatus}.`;
         await Message.create({ firstName: appointment.firstName, lastName: appointment.lastName, email: appointment.email, phone: appointment.phone, message: text, sentAt: new Date() });
+
+        // Check if there is a linked referral for this appointment
+        try {
+          const linkedReferral = await Referral.findOne({ appointmentId: appointment._id });
+          if (linkedReferral) {
+            if (newStatus === "Accepted" && linkedReferral.status !== "accepted") {
+              linkedReferral.status = "accepted";
+              await linkedReferral.save();
+
+              // Notify referrer
+              const refPhone = linkedReferral.applicantPhone || linkedReferral.patientPhone;
+              const refEmail = linkedReferral.applicantEmail || linkedReferral.patientEmail;
+              if (refPhone || refEmail) {
+                await Message.create({
+                  firstName: linkedReferral.applicantName || "Referrer",
+                  email: refEmail || "",
+                  phone: refPhone || "",
+                  message: `Referral update: The appointment for ${linkedReferral.patientName} has been accepted!`,
+                  recipient: linkedReferral.referredBy || undefined,
+                  sentAt: new Date(),
+                });
+              }
+            } else if (newStatus === "Completed" && linkedReferral.status !== "completed") {
+              linkedReferral.status = "completed";
+              const consultPrice = Number(appointment.price) || 500;
+              const commPercent = Number(linkedReferral.commissionPercent) || 5;
+              const commAmount = Math.round((consultPrice * commPercent) / 100);
+
+              linkedReferral.commissionAmount = commAmount;
+              linkedReferral.commissionStatus = "calculated";
+
+              // Record Expense in billing ledger
+              const expenseInv = new Invoice({
+                invoiceNumber: `EXP-REF-${Date.now().toString().slice(-6)}`,
+                appointment: appointment._id,
+                patientName: linkedReferral.applicantName || linkedReferral.patientName,
+                patientPhone: linkedReferral.applicantPhone || linkedReferral.patientPhone,
+                invoiceType: "Expense",
+                expenseCategory: "Referral Commission",
+                notes: `Referral commission payout for ${linkedReferral.patientName} (${commPercent}% of ₹${consultPrice})`,
+                items: [
+                  {
+                    description: `Referral Commission (${commPercent}%) - Patient: ${linkedReferral.patientName}`,
+                    quantity: 1,
+                    unitPrice: commAmount,
+                    total: commAmount,
+                  },
+                ],
+                subtotal: commAmount,
+                total: commAmount,
+                status: "Unpaid",
+                issueDate: new Date(),
+                createdBy: req.user?._id,
+              });
+              await expenseInv.save();
+              linkedReferral.expenseId = expenseInv._id;
+              await linkedReferral.save();
+
+              // Notify referrer
+              const refPhone = linkedReferral.applicantPhone || linkedReferral.patientPhone;
+              const refEmail = linkedReferral.applicantEmail || linkedReferral.patientEmail;
+              if (refPhone || refEmail) {
+                await Message.create({
+                  firstName: linkedReferral.applicantName || "Referrer",
+                  email: refEmail || "",
+                  phone: refPhone || "",
+                  message: `Referral completed: Appointment for ${linkedReferral.patientName} is completed! Your commission of ₹${commAmount} has been recorded.`,
+                  recipient: linkedReferral.referredBy || undefined,
+                  sentAt: new Date(),
+                });
+              }
+            }
+          }
+        } catch (refErr) {
+          console.warn("Failed to process linked referral status/commission:", refErr.message);
+        }
       }
     } catch (e) {
       console.warn('Failed to create notification message:', e.message);

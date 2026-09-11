@@ -25,6 +25,8 @@ const invoiceSchema = new mongoose.Schema(
     tax: { type: Number, min: 0, default: 0 },
     discount: { type: Number, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0, default: 0 },
+    invoiceType: { type: String, enum: ["Invoice", "Expense"], default: "Invoice" },
+    expenseCategory: { type: String, default: "General" },
     status: { type: String, enum: ["Unpaid", "Paid", "Partial", "Cancelled"], default: "Unpaid" },
     issuedAt: { type: Date, default: Date.now },
     dueDate: { type: Date },

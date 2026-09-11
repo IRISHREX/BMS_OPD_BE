@@ -118,6 +118,7 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     symptoms,
     clinicalNotes,
     urgency,
+    commissionPercent,
   } = req.body;
 
   if (!patientName) {
@@ -141,6 +142,57 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     }
   }
 
+  // Determine referrer user (authenticated user OR auto-create guest user)
+  let referrerUser = req.user || null;
+  let authToken = null;
+  let tempPassword = null;
+  let createdNewUser = false;
+
+  const bookerName = (applicantName || (applicantBy === "Self" ? patientName : "Applicant")).trim();
+  const bookerPhone = (applicantPhone || patientPhone || "").trim();
+  const bookerEmail = (applicantEmail || patientEmail || "").trim();
+
+  if (!referrerUser) {
+    // Check if a user already exists with this phone or email
+    try {
+      if (bookerPhone && bookerPhone.length >= 10) {
+        referrerUser = await User.findOne({ phone: bookerPhone });
+      }
+      if (!referrerUser && bookerEmail) {
+        referrerUser = await User.findOne({ email: bookerEmail.toLowerCase() });
+      }
+
+      if (!referrerUser) {
+        // Create new guest referral user with random temporary password
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        tempPassword = `Ref@${randomNum}`;
+        const nameParts = bookerName.split(" ");
+        const firstName = nameParts[0] || "Referral";
+        const lastName = nameParts.slice(1).join(" ") || "User";
+        const emailFallback = bookerEmail || `ref_${Date.now()}@opd.local`;
+
+        referrerUser = new User({
+          firstName,
+          lastName,
+          name: bookerName,
+          phone: bookerPhone && bookerPhone.length === 10 ? bookerPhone : undefined,
+          email: emailFallback.toLowerCase(),
+          password: tempPassword,
+          role: "Referral",
+          gender: gender ? (gender.toLowerCase() === "female" ? "Female" : "Male") : "Male",
+        });
+        await referrerUser.save();
+        createdNewUser = true;
+      }
+
+      if (referrerUser && typeof referrerUser.generateJsonWebToken === "function") {
+        authToken = referrerUser.generateJsonWebToken();
+      }
+    } catch (err) {
+      console.warn("Guest user resolution/creation error in referral:", err.message);
+    }
+  }
+
   const referral = new Referral({
     referralType: "patient_request",
     patientName: patientName.trim(),
@@ -152,9 +204,9 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     nic: nic || "",
     abhaId: abhaId || "",
     applicantBy: applicantBy || "Self",
-    applicantName: applicantName || (applicantBy === "Self" ? patientName : "Applicant"),
-    applicantPhone: applicantPhone || patientPhone || "",
-    applicantEmail: applicantEmail || patientEmail || "",
+    applicantName: bookerName,
+    applicantPhone: bookerPhone,
+    applicantEmail: bookerEmail,
     targetDoctorId: targetDoctorId || undefined,
     targetDoctorName: doctorName || "Doctor",
     targetDoctorSpecialty: doctorSpecialty,
@@ -166,8 +218,11 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     urgency: urgency || "routine",
     status: "submitted",
     convertedToAppointment: false,
-    referredBy: req.user?._id || undefined,
-    referredByName: applicantName || applicantBy || "Patient Request",
+    referredBy: referrerUser?._id || undefined,
+    referredByName: bookerName || "Patient Request",
+    commissionPercent: commissionPercent ? Number(commissionPercent) : 5,
+    commissionAmount: 0,
+    commissionStatus: "pending",
   });
 
   await referral.save();
@@ -176,6 +231,17 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     success: true,
     message: "Appointment request received successfully as a referral",
     referral,
+    token: authToken,
+    user: referrerUser ? {
+      _id: referrerUser._id,
+      firstName: referrerUser.firstName,
+      lastName: referrerUser.lastName,
+      name: referrerUser.name || `${referrerUser.firstName} ${referrerUser.lastName}`.trim(),
+      phone: referrerUser.phone,
+      email: referrerUser.email,
+      role: referrerUser.role,
+    } : null,
+    tempPassword: createdNewUser ? tempPassword : null,
   });
 });
 

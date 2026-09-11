@@ -246,6 +246,28 @@ const referralSchema = new mongoose.Schema(
       required: false,
     },
 
+    // Referral Commission & Accounting Tracking
+    commissionPercent: {
+      type: Number,
+      default: 5,
+      min: 0,
+      max: 100,
+    },
+    commissionAmount: {
+      type: Number,
+      default: 0,
+    },
+    commissionStatus: {
+      type: String,
+      enum: ["pending", "calculated", "paid"],
+      default: "pending",
+    },
+    expenseId: {
+      type: mongoose.Schema.ObjectId,
+      ref: "Invoice",
+      required: false,
+    },
+
     // Hospital Response
     acceptedHospitalId: {
       type: mongoose.Schema.ObjectId,
