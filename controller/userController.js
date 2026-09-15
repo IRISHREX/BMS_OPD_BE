@@ -372,60 +372,6 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
-  const { id } = req.params;
-  let doctor = await User.findById(id);
-  if (!doctor || doctor.role !== "Doctor") {
-    return next(new ErrorHandler("Doctor not found!", 404));
-  }
-
-  const {
-    firstName,
-    lastName,
-    name,
-    email,
-    phone,
-    doctorDepartment,
-    specialization,
-    qualifications,
-    visitingFee,
-    consultationFee,
-    gender,
-    compounderId,
-    compounders,
-  } = req.body;
-
-  if (name) {
-    const parts = name.trim().split(" ");
-    doctor.firstName = parts[0];
-    if (parts.length > 1) doctor.lastName = parts.slice(1).join(" ");
-  }
-  if (firstName) doctor.firstName = firstName;
-  if (lastName) doctor.lastName = lastName;
-  if (email) doctor.email = email;
-  if (phone) doctor.phone = phone;
-  if (doctorDepartment) doctor.doctorDepartment = doctorDepartment;
-  if (specialization) doctor.specialization = specialization;
-  if (qualifications) doctor.qualifications = qualifications;
-  if (gender) doctor.gender = gender;
-  if (consultationFee !== undefined || visitingFee !== undefined) {
-    doctor.consultationFee = Number(consultationFee ?? visitingFee);
-  }
-  if (compounderId) {
-    doctor.compounders = [compounderId];
-  } else if (compounders && Array.isArray(compounders)) {
-    doctor.compounders = compounders;
-  }
-
-  await doctor.save();
-
-  res.status(200).json({
-    success: true,
-    message: "Doctor details updated successfully",
-    doctor,
-  });
-});
-
 export const getAllDoctors = catchAsyncErrors(async (req, res, next) => {
   const doctors = await User.find({ role: 'Doctor' })
     .populate({ path: 'compounders', select: 'firstName lastName email' });

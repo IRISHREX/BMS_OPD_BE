@@ -326,7 +326,6 @@ referralSchema.pre("save", async function (next) {
 referralSchema.index({ patientId: 1, status: 1 });
 referralSchema.index({ "hospitals.hospitalId": 1 });
 referralSchema.index({ referredBy: 1 });
-referralSchema.index({ referralNumber: 1 });
 referralSchema.index({ status: 1, urgency: 1 });
 referralSchema.index({ createdAt: -1 });
 
