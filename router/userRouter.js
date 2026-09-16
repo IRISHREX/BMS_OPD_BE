@@ -360,8 +360,8 @@ router.post("/doctor/addnew", isAdminAuthenticated, uploadDoctorImages, addNewDo
  *                     $ref: '#/components/schemas/User'
  */
 router.get("/doctors", getAllDoctors);
-router.put("/doctor/update/:id", isDashboardAuthenticated, updateDoctorById);
-router.put("/doctor/:id", isDashboardAuthenticated, updateDoctorById);
+router.put("/doctor/update/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
+router.put("/doctor/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
 
 /**
  * @openapi
@@ -530,7 +530,7 @@ router.put('/role/:id', isAdminAuthenticated, updateUserRole);
  *       403:
  *         description: Forbidden - Admin only
  */
-router.put('/user/:id', isAdminAuthenticated, uploadDoctorImages, updateUserById);
+router.put('/user/:id', isDashboardAuthenticated, uploadDoctorImages, updateUserById);
 router.delete('/user/:id', isAdminAuthenticated, deleteUserById);
 
 /**
@@ -755,7 +755,7 @@ router.get("/doctors/list", getDoctorsList);
   router.get("/compounders", isDashboardAuthenticated, isAdminOrAssignedDoctorForCompounders, getAllCompounders);
 
   // Update doctor by ID
-  router.put("/doctor/update/:id", isDashboardAuthenticated, updateDoctorById);
-  router.put("/doctor/:id", isDashboardAuthenticated, updateDoctorById);
+  router.put("/doctor/update/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
+  router.put("/doctor/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
 
 export default router;

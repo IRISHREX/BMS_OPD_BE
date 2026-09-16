@@ -525,6 +525,47 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     }
   }
 
+  // Helper function to delete an image file
+  const deleteImage = (imagePath) => {
+    if (imagePath && typeof imagePath === 'string') {
+      const relativePath = imagePath.startsWith('/') ? imagePath.substring(1) : imagePath;
+      const fullPath = path.join(process.cwd(), relativePath);
+      fs.unlink(fullPath, (err) => {
+        if (err) console.error(`Failed to delete image: ${fullPath}`, err);
+      });
+    }
+  };
+
+  // Handle removal flags for images
+  if (req.body.removeDocAvatar === 'true') {
+    deleteImage(doctor.docAvatar?.url || doctor.docAvatar);
+    doctor.docAvatar = null;
+  }
+  if (req.body.removeSignImage === 'true') {
+    deleteImage(doctor.signImage);
+    doctor.signImage = null;
+  }
+  if (req.body.removeHeaderImage === 'true') {
+    deleteImage(doctor.headerImage);
+    doctor.headerImage = null;
+  }
+
+  // Handle newly uploaded image files
+  if (req.files) {
+    if (req.files.docAvatar && req.files.docAvatar[0]) {
+      deleteImage(doctor.docAvatar?.url || doctor.docAvatar);
+      doctor.docAvatar = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+    }
+    if (req.files.signImage && req.files.signImage[0]) {
+      deleteImage(doctor.signImage);
+      doctor.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+    }
+    if (req.files.headerImage && req.files.headerImage[0]) {
+      deleteImage(doctor.headerImage);
+      doctor.headerImage = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+    }
+  }
+
   await doctor.save();
 
   res.status(200).json({
@@ -570,12 +611,23 @@ export const getDashboardMe = catchAsyncErrors(async (req, res, next) => {
 
 // Logout function for dashboard admin
 export const logoutAdmin = catchAsyncErrors(async (req, res, next) => {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const cookieOptions = {
+    httpOnly: true,
+    expires: new Date(0),
+    path: '/',
+  };
+  if (isProduction) {
+    cookieOptions.secure = true;
+    cookieOptions.sameSite = 'none';
+  }
+
   res
-    .status(201)
-    .cookie("adminToken", "", {
-      httpOnly: true,
-      expires: new Date(Date.now()),
-    })
+    .status(200)
+    .cookie("adminToken", "", cookieOptions)
+    .cookie("patientToken", "", cookieOptions)
+    .clearCookie("adminToken", cookieOptions)
+    .clearCookie("patientToken", cookieOptions)
     .json({
       success: true,
       message: "Admin Logged Out Successfully.",
@@ -584,12 +636,23 @@ export const logoutAdmin = catchAsyncErrors(async (req, res, next) => {
 
 // Logout function for frontend patient
 export const logoutPatient = catchAsyncErrors(async (req, res, next) => {
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const cookieOptions = {
+    httpOnly: true,
+    expires: new Date(0),
+    path: '/',
+  };
+  if (isProduction) {
+    cookieOptions.secure = true;
+    cookieOptions.sameSite = 'none';
+  }
+
   res
-    .status(201)
-    .cookie("patientToken", "", {
-      httpOnly: true,
-      expires: new Date(Date.now()),
-    })
+    .status(200)
+    .cookie("patientToken", "", cookieOptions)
+    .cookie("adminToken", "", cookieOptions)
+    .clearCookie("patientToken", cookieOptions)
+    .clearCookie("adminToken", cookieOptions)
     .json({
       success: true,
       message: "Patient Logged Out Successfully.",
