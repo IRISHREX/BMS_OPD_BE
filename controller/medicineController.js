@@ -130,3 +130,28 @@ export const searchMedicineByComposition = catchAsyncErrors(async (req, res, nex
     medicines,
   });
 });
+
+export const deduplicateMedicines = catchAsyncErrors(async (req, res, next) => {
+  const allMedicines = await Medicine.find();
+  const uniqueNames = new Set();
+  const duplicateIds = [];
+
+  for (const medicine of allMedicines) {
+    const normalizedName = medicine.name.trim().toLowerCase();
+    if (uniqueNames.has(normalizedName)) {
+      duplicateIds.push(medicine._id);
+    } else {
+      uniqueNames.add(normalizedName);
+    }
+  }
+
+  if (duplicateIds.length > 0) {
+    await Medicine.deleteMany({ _id: { $in: duplicateIds } });
+  }
+
+  res.status(200).json({
+    success: true,
+    message: `Deduplication complete. Removed ${duplicateIds.length} duplicate medicines.`,
+    removedCount: duplicateIds.length,
+  });
+});

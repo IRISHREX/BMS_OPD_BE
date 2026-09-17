@@ -1,11 +1,15 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import dns from "dns";
 import { User } from "./models/userSchema.js";
 import { Medicine } from "./models/medicineSchema.js";
 import { MedicalAdvice } from "./models/medicalAdviceSchema.js";
+import { orthoMedicines, orthoAdvices } from "./orthoData.js";
 
 // Load environment variables
 dotenv.config({ path: "./.env" });
+
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const MONGO_URI = process.env.MONGO_URI;
 
@@ -366,6 +370,9 @@ const medicalAdvices = [
 ];
 
 // Seed Database Function
+
+medicines.push(...orthoMedicines);
+medicalAdvices.push(...orthoAdvices);
 
 async function seedDatabase() {
   const isCleanRun = process.argv.includes("--clean");

@@ -7,6 +7,7 @@ import {
   deleteMedicine,
   searchMedicineByName,
   searchMedicineByComposition,
+  deduplicateMedicines,
 } from "../controller/medicineController.js";
 import {
   isAdminAuthenticated,
@@ -21,5 +22,6 @@ router.put("/update/:id", isAdminAuthenticated, updateMedicine);
 router.delete("/delete/:id", isAdminAuthenticated, deleteMedicine);
 router.get("/search/name", searchMedicineByName);
 router.get("/search/composition", searchMedicineByComposition);
+router.delete("/deduplicate", isAdminAuthenticated, deduplicateMedicines);
 
 export default router;
