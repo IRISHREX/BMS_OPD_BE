@@ -179,8 +179,8 @@ const appointmentSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    // Added 'Due' to represent payment outstanding. Values: Pending (unknown), Accepted (recorded/acknowledged), Due (payment outstanding), Paid (paid)
-    enum: ["Pending", "Accepted", "Due", "Paid"],
+    // Values: Pending (unknown), Accepted (recorded/acknowledged), Due (payment outstanding), Paid (paid), Refund (refunded)
+    enum: ["Pending", "Accepted", "Due", "Paid", "Refund"],
     default: "Pending",
   },
   doctorId: {
@@ -195,7 +195,7 @@ const appointmentSchema = new mongoose.Schema({
   invoices: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' }],
   status: {
     type: String,
-    enum: ["Pending", "Accepted", "Rejected", "Completed"],
+    enum: ["Pending", "Accepted", "Rejected", "Canceled", "Cancelled", "Completed"],
     default: "Pending",
   },
 });

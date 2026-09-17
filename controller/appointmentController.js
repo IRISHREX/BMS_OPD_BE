@@ -63,23 +63,64 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
 
   // status_update (generic status changes via dashboard/API)
   if (context === 'status_update') {
+    const rawExistingStatus = existing.status || 'Pending';
+    const existingStatus = rawExistingStatus === 'Rejected' ? 'Canceled' : rawExistingStatus;
+    const existingPayment = existing.paymentStatus || 'Pending';
+
+    // Terminal states: Completed, Canceled/Cancelled, or Refund
+    const isTerminalStatus = ['Completed', 'Canceled', 'Cancelled'].includes(existingStatus);
+    const isTerminalPayment = existingPayment === 'Refund';
+
+    // If already in a terminal state, lock the values
+    if (isTerminalStatus || isTerminalPayment) {
+      payload.status = existingStatus;
+      payload.paymentStatus = existingPayment;
+      return payload;
+    }
+
+    // 1. Handling Payment Status transitions
     if (typeof payload.paymentStatus !== 'undefined') {
-      // Changing payment to Paid should not auto-complete; it should set at least Accepted.
+      if (payload.paymentStatus === 'Refund') {
+        payload.paymentStatus = 'Refund';
+        payload.status = 'Canceled';
+        return payload;
+      }
       if (payload.paymentStatus === 'Paid') {
-        payload.status = payload.status || 'Accepted';
-      } else if (payload.paymentStatus === 'Accepted' || payload.paymentStatus === 'Pending' || payload.paymentStatus === 'Due') {
-        payload.status = payload.status || 'Accepted';
+        // If status is Pending (or not specified), auto-transition to Accepted
+        if (!payload.status || payload.status === 'Pending') {
+          payload.status = existingStatus === 'Pending' ? 'Accepted' : existingStatus;
+        }
+      } else if (payload.paymentStatus === 'Pending') {
+        // If already Paid, do not allow reverting to Pending
+        if (existingPayment === 'Paid') {
+          payload.paymentStatus = 'Paid';
+        }
       }
     }
 
-    // If client explicitly requests Completed, ensure payment is Paid (existing or incoming)
-    if (payload.status === 'Completed') {
-      const isPaid = ['Paid', 'Accepted'].includes(String(payload.paymentStatus || '').trim()) || ['Paid', 'Accepted'].includes(String(existing.paymentStatus || '').trim());
-      if (!isPaid) {
-        payload.status = 'Accepted';
-        payload.paymentStatus = payload.paymentStatus || 'Due';
-      } else {
-        payload.paymentStatus = 'Paid';
+    // 2. Handling Status transitions
+    if (typeof payload.status !== 'undefined') {
+      if (payload.status === 'Canceled' || payload.status === 'Cancelled' || payload.status === 'Rejected') {
+        if (existingPayment === 'Paid' && payload.paymentStatus !== 'Refund') {
+          // Paid appointments must be cancelled through Refund
+          payload.status = existingStatus;
+        } else {
+          payload.status = 'Canceled';
+        }
+      } else if (payload.status === 'Completed') {
+        const isPaid = (payload.paymentStatus === 'Paid') || (existingPayment === 'Paid');
+        if (!isPaid) {
+          // Cannot complete unpaid appointment
+          payload.status = existingStatus;
+        } else {
+          payload.status = 'Completed';
+          payload.paymentStatus = 'Paid';
+        }
+      } else if (payload.status === 'Pending') {
+        // If already Paid, cannot revert status back to Pending
+        if (existingPayment === 'Paid' || payload.paymentStatus === 'Paid') {
+          payload.status = 'Accepted';
+        }
       }
     }
 
@@ -119,15 +160,19 @@ export async function syncReportForAppointment(apptId) {
     due = Math.max(0, Number(amount || 0) - paid);
   } else {
     const ps = String(appt.paymentStatus || '').trim();
-    if (appt.status === 'Completed') {
+    const st = String(appt.status || '').trim();
+    if (st === 'Completed') {
       paid = amount;
       due = 0;
-    } else if (appt.status === 'Accepted') {
+    } else if (st === 'Canceled' || st === 'Cancelled' || st === 'Rejected' || ps === 'Refund') {
+      paid = 0;
+      due = 0;
+    } else if (ps === 'Paid' || ps === 'Accepted') {
+      paid = amount;
+      due = 0;
+    } else if (st === 'Accepted') {
       paid = 0;
       due = amount;
-    } else if (['Paid', 'Accepted'].includes(ps)) {
-      paid = amount;
-      due = 0;
     } else if (['Pending', 'Due'].includes(ps)) {
       paid = 0;
       due = amount;
@@ -333,15 +378,15 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
   // Auto-generate invoice for this appointment
   try {
     const genInvoiceNumber = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`;
-    // Use doctor's consultationFee when available, otherwise fall back to bookingPrice
-    const consultationFee = Number(chosenDoctor?.consultationFee || bookingPrice || 0);
-    const platformFee = 50; // default platform fee
+    // Use doctorFee and price from request payload if provided, otherwise fall back to doctor's consultation fee & default platform fee
+    const consultationFee = Number(req.body.doctorFee != null ? req.body.doctorFee : (chosenDoctor?.consultationFee || bookingPrice || 0));
+    const platformFee = Number(req.body.price != null ? req.body.price : 50);
 
     const invoiceItems = [
       { description: 'Consultation Fee', quantity: 1, unitPrice: consultationFee, total: consultationFee },
       { description: 'Platform Fee', quantity: 1, unitPrice: platformFee, total: platformFee },
     ];
-console.log("Creating invoice with items:", appointment._id);
+    console.log("Creating invoice with items:", appointment._id, invoiceItems);
     // map legacy 'Accepted' to 'Paid' when creating invoice status
     const normalizedInvoiceStatus = (finalPaymentStatus === 'Paid' || finalPaymentStatus === 'Accepted') ? 'Paid' : 'Unpaid';
     const invoice = await Invoice.create({

@@ -449,8 +449,22 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
 
   const department = appointment.department || docObj.doctorDepartment || 'N/A';
   const issuedAt = invoice.issuedAt 
-    ? new Date(invoice.issuedAt).toLocaleString() 
-    : (invoice.createdAt ? new Date(invoice.createdAt).toLocaleString() : (appointment.appointment_date || '-'));
+    ? new Date(invoice.issuedAt).toLocaleString('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true }) 
+    : (invoice.createdAt ? new Date(invoice.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: true }) : (appointment.appointment_date || '-'));
+
+  const printedByName = (req.user?.firstName || req.user?.lastName)
+    ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim()
+    : (req.user?.name || appointment.book_by_name || 'Admin');
+  
+  const printedDateTime = new Date().toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: true
+  });
 
   const html = `<!doctype html>
   <html>
@@ -459,20 +473,24 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <title>Receipt ${escapeHtml(invoice.invoiceNumber || '')}</title>
       <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #2d3748; max-width: 650px; margin: 0 auto; line-height: 1.5; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #2d3748; max-width: 650px; margin: 0 auto; line-height: 1.5; background: #fff; }
         .receipt-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); background: #ffffff; }
         .header { text-align: center; border-bottom: 2px solid #edf2f7; padding-bottom: 16px; margin-bottom: 20px; }
-        .header h1 { margin: 0; color: #1a202c; font-size: 22px; }
+        .header h1 { margin: 0; color: #1a202c; font-size: 22px; font-weight: 700; }
         .header p { margin: 4px 0 0; color: #718096; font-size: 14px; }
         .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; font-size: 14px; }
         .detail-item strong { color: #4a5568; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+        .detail-item span { color: #1a202c; }
         .table-section { margin-bottom: 20px; }
+        .table-section h3 { margin: 0 0 10px 0; color: #1a202c; font-size: 16px; font-weight: 700; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-        th { background: #f7fafc; padding: 10px; text-align: left; border-bottom: 2px solid #edf2f7; color: #4a5568; }
+        th { background: #f7fafc; padding: 10px; text-align: left; border-bottom: 2px solid #edf2f7; color: #4a5568; font-weight: 600; }
         td { padding: 10px; border-bottom: 1px solid #edf2f7; }
         .totals { text-align: right; margin-top: 16px; font-size: 14px; }
         .totals .grand-total { font-size: 18px; font-weight: bold; color: #2b6cb0; margin-top: 8px; }
         .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e6fffa; color: #234e52; }
+        .badge-unpaid { background: #fef3c7; color: #92400e; }
+        .footer-print-info { margin-top: 24px; padding-top: 12px; border-top: 1px dashed #e2e8f0; font-size: 11.5px; color: #718096; text-align: right; }
       </style>
     </head>
     <body>
@@ -504,7 +522,7 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
           </div>
           <div class="detail-item">
             <strong>Payment Status</strong>
-            <span class="badge">${escapeHtml(invoice.status || appointment.paymentStatus || 'Paid')}</span>
+            <span class="badge ${invoice.status === 'Paid' || appointment.paymentStatus === 'Paid' ? '' : 'badge-unpaid'}">${escapeHtml(invoice.status || appointment.paymentStatus || 'Unpaid')}</span>
           </div>
         </div>
 
@@ -541,6 +559,10 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
 
         <div class="totals">
           <div class="grand-total">Total Payable: ₹${escapeHtml(String(invoice.total || appointment.price || 0))}</div>
+        </div>
+
+        <div class="footer-print-info">
+          Printed By: <strong>${escapeHtml(printedByName)}</strong> (${escapeHtml(printedDateTime)})
         </div>
       </div>
     </body>

@@ -133,11 +133,11 @@
  *           default: 0
  *         paymentStatus:
  *           type: string
- *           enum: ["Pending", "Accepted", "Due", "Paid"]
+ *           enum: ["Pending", "Accepted", "Due", "Paid", "Refund"]
  *           default: "Pending"
  *         status:
  *           type: string
- *           enum: ["Pending", "Accepted", "Rejected", "Completed"]
+ *           enum: ["Pending", "Accepted", "Rejected", "Canceled", "Completed"]
  *           default: "Pending"
  *         address:
  *           type: string
