@@ -1,7 +1,9 @@
+import mongoose from "mongoose";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
+import { Report } from "../models/reportSchema.js";
 import { syncReportForAppointment } from "./appointmentController.js";
 import { User } from "../models/userSchema.js";
 import { logEvent } from "../utils/logger.js";
@@ -496,14 +498,15 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
   }
 
   if (!invoice && mongoose.Types.ObjectId.isValid(id)) {
-    const appt = await Appointment.findById(id).populate('patientId doctorId');
+    const appt = await Appointment.findById(id);
     if (appt) {
+      const doc = appt.doctor || {};
       invoice = {
         _id: appt._id,
         invoiceNumber: `INV-${String(appt._id).slice(-6).toUpperCase()}`,
         appointment: appt,
-        patient: appt.patientId,
-        doctor: appt.doctorId,
+        patient: { firstName: appt.name, phone: appt.phone, nic: appt.nic, age: appt.age, gender: appt.gender, email: appt.email },
+        doctor: { firstName: doc.firstName || '', lastName: doc.lastName || '', name: `${doc.firstName || ''} ${doc.lastName || ''}`.trim() },
         items: [{ description: `Consultation (${appt.department || 'General'})`, quantity: 1, unitPrice: appt.price || 0, total: appt.price || 0 }],
         subtotal: appt.price || 0,
         tax: 0,
@@ -512,6 +515,30 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
         status: appt.paymentStatus === 'Paid' ? 'Paid' : (appt.paymentStatus === 'Refund' ? 'Refund' : 'Unpaid'),
         issuedAt: appt.appointment_date || appt.createdAt,
         payments: appt.paymentStatus === 'Paid' ? [{ amount: appt.price || 0, paidAt: appt.appointment_date, method: 'Cash' }] : []
+      };
+    }
+  }
+
+  if (!invoice && mongoose.Types.ObjectId.isValid(id)) {
+    const rep = await Report.findById(id).populate('doctorId patientId');
+    if (rep) {
+      const appt = rep.appointmentId ? await Appointment.findById(rep.appointmentId) : null;
+      const pat = rep.patientId || {};
+      const doc = rep.doctorId || (appt ? appt.doctor : {});
+      invoice = {
+        _id: rep._id,
+        invoiceNumber: `INV-${String(rep._id).slice(-6).toUpperCase()}`,
+        appointment: appt || {},
+        patient: { firstName: pat.firstName || pat.name || (appt ? appt.name : 'Patient'), phone: pat.phone || (appt ? appt.phone : ''), nic: pat.nic, age: appt ? appt.age : undefined, gender: appt ? appt.gender : undefined, email: pat.email },
+        doctor: { firstName: doc.firstName || doc.name || '', lastName: doc.lastName || '', name: doc.name || `${doc.firstName || ''} ${doc.lastName || ''}`.trim() },
+        items: [{ description: `Medical Consultation / Service`, quantity: 1, unitPrice: rep.amount || 0, total: rep.amount || 0 }],
+        subtotal: rep.amount || 0,
+        tax: 0,
+        discount: 0,
+        total: rep.amount || 0,
+        status: rep.status || 'Paid',
+        issuedAt: rep.appointmentDate || rep.createdAt,
+        payments: rep.status === 'Paid' ? [{ amount: rep.paid || rep.amount || 0, paidAt: rep.appointmentDate, method: 'Cash' }] : []
       };
     }
   }

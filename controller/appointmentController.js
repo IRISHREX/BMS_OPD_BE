@@ -612,6 +612,12 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
   const harmonizedStatusPayment = harmonizeStatusPayment({ incomingPayload: payload, existingAppointment: latest, context: 'prescription_save' });
   const updatePayload = { ...payload, ...harmonizedStatusPayment };
 
+  const updated = await Appointment.findByIdAndUpdate(latest._id, updatePayload, {
+    new: true,
+    runValidators: true,
+    useFindAndModify: false,
+  });
+
   const hasPrescription = Boolean(
     payload.result ||
     payload.medicineAdvice ||
