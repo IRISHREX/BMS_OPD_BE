@@ -485,7 +485,37 @@ export const settleInvoicesForAppointment = catchAsyncErrors(async (req, res, ne
 
 export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const invoice = await Invoice.findById(id).populate('patient doctor appointment');
+  let invoice = null;
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    invoice = await Invoice.findById(id).populate('patient doctor appointment');
+    if (!invoice) {
+      invoice = await Invoice.findOne({ appointment: id }).populate('patient doctor appointment');
+    }
+  } else {
+    invoice = await Invoice.findOne({ invoiceNumber: id }).populate('patient doctor appointment');
+  }
+
+  if (!invoice && mongoose.Types.ObjectId.isValid(id)) {
+    const appt = await Appointment.findById(id).populate('patientId doctorId');
+    if (appt) {
+      invoice = {
+        _id: appt._id,
+        invoiceNumber: `INV-${String(appt._id).slice(-6).toUpperCase()}`,
+        appointment: appt,
+        patient: appt.patientId,
+        doctor: appt.doctorId,
+        items: [{ description: `Consultation (${appt.department || 'General'})`, quantity: 1, unitPrice: appt.price || 0, total: appt.price || 0 }],
+        subtotal: appt.price || 0,
+        tax: 0,
+        discount: 0,
+        total: appt.price || 0,
+        status: appt.paymentStatus === 'Paid' ? 'Paid' : (appt.paymentStatus === 'Refund' ? 'Refund' : 'Unpaid'),
+        issuedAt: appt.appointment_date || appt.createdAt,
+        payments: appt.paymentStatus === 'Paid' ? [{ amount: appt.price || 0, paidAt: appt.appointment_date, method: 'Cash' }] : []
+      };
+    }
+  }
+
   if (!invoice) return next(new ErrorHandler('Invoice not found', 404));
 
   const patient = invoice.patient || {};

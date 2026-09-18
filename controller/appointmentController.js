@@ -192,7 +192,7 @@ export async function syncReportForAppointment(apptId) {
     paid,
     due,
     revenue: paid, // backward compatibility
-    status: paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted'),
+    status: ps === 'Refund' ? 'Refund' : (paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted')),
     notes: `Auto-synced from appointment ${appt._id}`,
   };
   const existing = await Report.findOne({ appointmentId: appt._id });

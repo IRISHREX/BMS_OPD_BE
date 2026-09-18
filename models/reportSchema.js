@@ -11,7 +11,7 @@ const reportSchema = new mongoose.Schema({
   due: { type: Number, default: 0 }, // amount marked as due/receivable
   // For backward compatibility keep 'revenue' as alias of 'paid' (synchronised by controller)
   revenue: { type: Number, default: 0 }, // deprecated alias for paid
-  status: { type: String, enum: ['Due', 'Paid', 'Partial', 'Adjusted'], default: 'Due' },
+  status: { type: String, enum: ['Due', 'Paid', 'Partial', 'Adjusted', 'Refund'], default: 'Due' },
   notes: { type: String },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });

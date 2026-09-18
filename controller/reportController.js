@@ -118,21 +118,116 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
 
 // List / search persisted report entries
 export const listReports = catchAsyncErrors(async (req, res, next) => {
-  const { start, end, appointmentId, q, doctorId, page = 1, limit = 50 } = req.query;
+  const { start, end, appointmentId, q, doctorId, status, page = 1, limit = 50 } = req.query;
   const filter = {};
   if (appointmentId) filter.appointmentId = appointmentId;
   if (doctorId) filter.doctorId = doctorId;
+  if (status) {
+    if (status === 'Refund') {
+      filter.status = 'Refund';
+      try {
+        const refundedAppts = await Appointment.find({ paymentStatus: 'Refund' }).select('_id').lean();
+        for (const ra of refundedAppts) {
+          const rep = await Report.findOne({ appointmentId: ra._id });
+          if (!rep || rep.status !== 'Refund') {
+            await upsertReportEntryForAppointment(ra._id);
+          }
+        }
+      } catch (e) {
+        console.warn('Auto-sync refunded reports error:', e.message);
+      }
+    } else {
+      filter.status = status;
+    }
+  }
   if (start || end) filter.appointmentDate = {};
   if (start) filter.appointmentDate.$gte = new Date(start);
   if (end) filter.appointmentDate.$lte = new Date(end);
-  if (q) {
-    const regex = new RegExp(q, 'i');
-    // search patient name/phone via join is heavier; allow appointmentId or notes search
-    filter.$or = [{ notes: regex }];
+
+  if (q && q.trim()) {
+    const trimmed = q.trim();
+    const regex = new RegExp(trimmed, 'i');
+    const orConditions = [{ notes: regex }];
+
+    if (mongoose.Types.ObjectId.isValid(trimmed)) {
+      const objId = new mongoose.Types.ObjectId(trimmed);
+      orConditions.push(
+        { _id: objId },
+        { appointmentId: objId },
+        { patientId: objId },
+        { doctorId: objId }
+      );
+    }
+
+    // 1. Search patient user records
+    const matchingPatients = await mongoose.model('User').find({
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { name: regex },
+        { phone: regex },
+        { email: regex },
+        { nic: regex },
+      ],
+    }).select('_id').lean();
+    if (matchingPatients.length > 0) {
+      orConditions.push({ patientId: { $in: matchingPatients.map((p) => p._id) } });
+    }
+
+    // 2. Search doctor user records
+    const matchingDoctors = await mongoose.model('User').find({
+      role: 'Doctor',
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { name: regex },
+        { doctorDepartment: regex },
+      ],
+    }).select('_id').lean();
+    if (matchingDoctors.length > 0) {
+      orConditions.push({ doctorId: { $in: matchingDoctors.map((d) => d._id) } });
+    }
+
+    // 3. Search appointments by patient name, phone, doctor name
+    const matchingAppointments = await Appointment.find({
+      $or: [
+        { name: regex },
+        { phone: regex },
+        { 'doctor.firstName': regex },
+        { 'doctor.lastName': regex },
+      ],
+    }).select('_id').lean();
+    if (matchingAppointments.length > 0) {
+      orConditions.push({ appointmentId: { $in: matchingAppointments.map((a) => a._id) } });
+    }
+
+    // 4. Search Invoices by invoiceNumber
+    const matchingInvoices = await Invoice.find({
+      invoiceNumber: regex,
+    }).select('appointment').lean();
+    const invoiceApptIds = matchingInvoices.map((inv) => inv.appointment).filter(Boolean);
+    if (invoiceApptIds.length > 0) {
+      orConditions.push({ appointmentId: { $in: invoiceApptIds } });
+    }
+
+    filter.$or = orConditions;
   }
+
   const skip = (Number(page) - 1) * Number(limit);
   const total = await Report.countDocuments(filter);
-  const entries = await Report.find(filter).sort({ appointmentDate: -1 }).skip(skip).limit(Number(limit)).populate('doctorId', 'firstName lastName').populate('patientId', 'firstName lastName').lean();
+  const entries = await Report.find(filter)
+    .sort({ appointmentDate: -1 })
+    .skip(skip)
+    .limit(Number(limit))
+    .populate('doctorId', 'firstName lastName doctorDepartment name')
+    .populate('patientId', 'firstName lastName name phone email nic')
+    .populate({
+      path: 'appointmentId',
+      select: 'name phone doctor department appointment_date price paymentStatus status invoices nic',
+      populate: { path: 'invoices', select: 'invoiceNumber total status payments' }
+    })
+    .lean();
+
   res.status(200).json({ success: true, total, page: Number(page), limit: Number(limit), entries });
 });
 
@@ -255,7 +350,11 @@ export async function upsertReportEntryForAppointment(apptId) {
   let paid = 0;
   let due = 0;
   const ps = String(appt.paymentStatus || '').trim();
-  if (appt.status === 'Completed') {
+  const st = String(appt.status || '').trim();
+  if (ps === 'Refund' || st === 'Canceled' || st === 'Cancelled' || st === 'Rejected') {
+    paid = 0;
+    due = 0;
+  } else if (appt.status === 'Completed') {
     paid = amount;
     due = 0;
   } else if (appt.status === 'Accepted') {
@@ -278,7 +377,7 @@ export async function upsertReportEntryForAppointment(apptId) {
     paid,
     due,
     revenue: paid, // keep backward compatibility
-    status: paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted'),
+    status: ps === 'Refund' ? 'Refund' : (paid > 0 ? 'Paid' : (due > 0 ? 'Due' : 'Adjusted')),
     notes: `Auto-synced from appointment ${appt._id}`,
   };
 
