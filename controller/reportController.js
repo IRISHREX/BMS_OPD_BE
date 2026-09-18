@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { Report } from "../models/reportSchema.js";
+import { logEvent } from "../utils/logger.js";
 
 // Helper to parse ISO date (day start / day end)
 const parseRange = (start, end) => {
@@ -143,9 +144,29 @@ export const upsertReport = catchAsyncErrors(async (req, res, next) => {
   if (existing) {
     Object.assign(existing, payload);
     await existing.save();
+
+    logEvent({
+      level: "INFO",
+      category: "Report",
+      action: "REPORT_UPDATE",
+      message: `Report updated for appointment #${payload.appointmentId}`,
+      req,
+      metadata: { appointmentId: payload.appointmentId, status: existing.status, amount: existing.amount },
+    });
+
     return res.status(200).json({ success: true, report: existing });
   }
   const created = await Report.create(payload);
+
+  logEvent({
+    level: "INFO",
+    category: "Report",
+    action: "REPORT_CREATE",
+    message: `Report created for appointment #${payload.appointmentId}`,
+    req,
+    metadata: { appointmentId: payload.appointmentId, status: created.status, amount: created.amount },
+  });
+
   res.status(201).json({ success: true, report: created });
 });
 
@@ -157,6 +178,16 @@ export const updateReport = catchAsyncErrors(async (req, res, next) => {
   if (!entry) return next(new ErrorHandler('Report entry not found', 404));
   Object.assign(entry, payload);
   await entry.save();
+
+  logEvent({
+    level: "INFO",
+    category: "Report",
+    action: "REPORT_UPDATE",
+    message: `Report entry #${id} updated`,
+    req,
+    metadata: { reportId: id, appointmentId: entry.appointmentId, amount: entry.amount, status: entry.status },
+  });
+
   res.status(200).json({ success: true, report: entry });
 });
 
@@ -186,6 +217,16 @@ export const deleteReport = catchAsyncErrors(async (req, res, next) => {
   const entry = await Report.findById(id);
   if (!entry) return next(new ErrorHandler('Report entry not found', 404));
   await entry.deleteOne();
+
+  logEvent({
+    level: "WARN",
+    category: "Report",
+    action: "REPORT_DELETE",
+    message: `Report entry #${id} was deleted`,
+    req,
+    metadata: { reportId: id, appointmentId: entry.appointmentId },
+  });
+
   res.status(200).json({ success: true, message: 'Report entry deleted' });
 });
 

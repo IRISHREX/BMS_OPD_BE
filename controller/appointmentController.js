@@ -6,6 +6,7 @@ import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Report } from "../models/reportSchema.js";
 import { Referral } from "../models/referralSchema.js";
+import { logEvent } from "../utils/logger.js";
 
 // Helper to centralize business rules for status <-> paymentStatus
 // contexts: 'create', 'prescription_save', 'status_update'
@@ -413,6 +414,21 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
       console.warn('Failed to sync report after invoice creation:', e.message);
     }
 
+    logEvent({
+      level: "INFO",
+      category: "Billing",
+      action: "INVOICE_CREATE",
+      message: `Invoice #${invoice.invoiceNumber} created for appointment of ${appointment.name} (Amount: ₹${invoice.total})`,
+      req,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        appointmentId: appointment._id,
+        total: invoice.total,
+        status: invoice.status,
+      },
+    });
+
     // If client requested invoice download (query param download=true) return a simple HTML invoice as attachment
     if (req.query && req.query.download === 'true') {
       const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${invoice.invoiceNumber}</title></head><body><h1>Invoice: ${invoice.invoiceNumber}</h1><p>Patient: ${appointment.name}</p><p>Phone: ${appointment.phone}</p><p>Doctor: ${chosenDoctor.firstName} ${chosenDoctor.lastName}</p><p>Department: ${appointment.department}</p><p>Date: ${appointment.appointment_date}</p><p>Items:</p><ul>${invoice.items.map(i=>`<li>${i.description} - ${i.quantity} x ${i.unitPrice} = ${i.total}</li>`).join('')}</ul><p>Subtotal: ${invoice.subtotal}</p><p>Tax: ${invoice.tax}</p><p>Discount: ${invoice.discount}</p><p>Total: ${invoice.total} Rs</p><p>Payment Status: ${invoice.status}</p></body></html>`;
@@ -427,6 +443,26 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
 
   // Return populated appointment (include booked_by and invoices)
   const populatedAppointment = await Appointment.findById(appointment._id).populate('booked_by').populate('invoices');
+
+  logEvent({
+    level: "INFO",
+    category: "Appointment",
+    action: "APPOINTMENT_CREATE",
+    message: `Appointment created for patient "${appointment.name}" (${appointment.phone}) with Dr. ${chosenDoctor?.firstName || ""} ${chosenDoctor?.lastName || ""}`,
+    req,
+    metadata: {
+      appointmentId: appointment._id,
+      patientName: appointment.name,
+      patientPhone: appointment.phone,
+      doctor: `${chosenDoctor?.firstName || ""} ${chosenDoctor?.lastName || ""}`.trim(),
+      department: appointment.department,
+      date: appointment.appointment_date,
+      price: appointment.price,
+      status: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+    },
+  });
+
   res.status(200).json({ success: true, appointment: populatedAppointment, message: 'Appointment Created!' });
 });
 
@@ -576,11 +612,31 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
   const harmonizedStatusPayment = harmonizeStatusPayment({ incomingPayload: payload, existingAppointment: latest, context: 'prescription_save' });
   const updatePayload = { ...payload, ...harmonizedStatusPayment };
 
-  const updated = await Appointment.findByIdAndUpdate(latest._id, updatePayload, {
-    new: true,
-    runValidators: true,
-    useFindAndModify: false,
+  const hasPrescription = Boolean(
+    payload.result ||
+    payload.medicineAdvice ||
+    payload.diagnosis ||
+    payload.printed ||
+    payload.print
+  );
+
+  logEvent({
+    level: "INFO",
+    category: hasPrescription ? "Report" : "Appointment",
+    action: hasPrescription ? "PRESCRIPTION_GENERATE" : "APPOINTMENT_UPDATE",
+    message: hasPrescription
+      ? `Prescription & medical advice generated/updated for patient #${id} (${updated?.name || "Patient"})`
+      : `Appointment updated for patient #${id}`,
+    req,
+    metadata: {
+      patientId: id,
+      appointmentId: updated?._id,
+      status: updated?.status,
+      paymentStatus: updated?.paymentStatus,
+      medicinesCount: Array.isArray(payload.result?.[0]?.medicineAdvice) ? payload.result[0].medicineAdvice.length : 0,
+    },
   });
+
   res.status(200).json({ success: true, appointment: updated, message: "Appointment Updated!" });
 });
 
@@ -725,6 +781,56 @@ export const updateAppointmentStatus = catchAsyncErrors(
       console.warn('Failed to sync report after appointment status update:', e.message);
     }
 
+    const prevStatus = before?.status;
+    const newStatus = appointment?.status;
+    const prevPayment = before?.paymentStatus;
+    const newPayment = appointment?.paymentStatus;
+
+    if (newPayment === "Refund" && prevPayment !== "Refund") {
+      logEvent({
+        level: "WARN",
+        category: "Billing",
+        action: "PAYMENT_REFUND",
+        message: `Refund recorded for appointment #${appointment._id} (${appointment.name})`,
+        req,
+        metadata: {
+          appointmentId: appointment._id,
+          patientName: appointment.name,
+          price: appointment.price,
+          previousPaymentStatus: prevPayment,
+        },
+      });
+    } else if (newPayment === "Paid" && prevPayment !== "Paid") {
+      logEvent({
+        level: "INFO",
+        category: "Billing",
+        action: "PAYMENT_RECEIVED",
+        message: `Payment received for appointment #${appointment._id} (${appointment.name}) - ₹${appointment.price}`,
+        req,
+        metadata: {
+          appointmentId: appointment._id,
+          patientName: appointment.name,
+          price: appointment.price,
+        },
+      });
+    }
+
+    logEvent({
+      level: "INFO",
+      category: "Appointment",
+      action: "APPOINTMENT_STATUS_CHANGE",
+      message: `Appointment status updated for ${appointment.name}: ${prevStatus || "Pending"} -> ${newStatus} (Payment: ${prevPayment || "Pending"} -> ${newPayment || "Pending"})`,
+      req,
+      metadata: {
+        appointmentId: appointment._id,
+        patientName: appointment.name,
+        fromStatus: prevStatus,
+        toStatus: newStatus,
+        fromPayment: prevPayment,
+        toPayment: newPayment,
+      },
+    });
+
     res.status(200).json({
       success: true,
       message: "Appointment Status Updated!",
@@ -753,6 +859,22 @@ export const deleteAppointment = catchAsyncErrors(async (req, res, next) => {
   }
 
   await appointment.deleteOne();
+
+  logEvent({
+    level: "WARN",
+    category: "Appointment",
+    action: "APPOINTMENT_DELETE",
+    message: `Appointment #${appointment._id} for patient "${appointment.name}" was deleted`,
+    req,
+    metadata: {
+      appointmentId: appointment._id,
+      patientName: appointment.name,
+      patientPhone: appointment.phone,
+      doctor: `${appointment.doctor?.firstName || ""} ${appointment.doctor?.lastName || ""}`.trim(),
+      appointmentDate: appointment.appointment_date,
+    },
+  });
+
   res.status(200).json({
     success: true,
     message: "Appointment and related invoices/reports deleted!",
@@ -777,6 +899,18 @@ export const bulkDeleteAppointments = catchAsyncErrors(async (req, res, next) =>
     console.warn('Failed to delete report entries for bulk appointments', e.message);
   }
   const result = await Appointment.deleteMany({ _id: { $in: ids } });
+
+  logEvent({
+    level: "WARN",
+    category: "Appointment",
+    action: "APPOINTMENT_BULK_DELETE",
+    message: `Bulk deleted ${result.deletedCount} appointments`,
+    req,
+    metadata: {
+      ids,
+      deletedCount: result.deletedCount,
+    },
+  });
   res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments and related invoices/reports deleted" });
 });
 

@@ -1,4 +1,5 @@
 import { Log } from "../models/logSchema.js";
+import { LogSettings } from "../models/logSettingsSchema.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 
@@ -94,7 +95,13 @@ export const getLogStats = catchAsyncErrors(async (req, res, next) => {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const [todayTotal, todayErrors, todayWarns, recentErrors] = await Promise.all([
+  let settings = await LogSettings.findOne();
+  if (!settings) {
+    settings = await LogSettings.create({ maxLogsLimit: 500, autoDeleteEnabled: true });
+  }
+
+  const [totalLogs, todayTotal, todayErrors, todayWarns, recentErrors] = await Promise.all([
+    Log.countDocuments(),
     Log.countDocuments({ createdAt: { $gte: startOfToday } }),
     Log.countDocuments({ level: "ERROR", createdAt: { $gte: startOfToday } }),
     Log.countDocuments({ level: "WARN", createdAt: { $gte: startOfToday } }),
@@ -105,14 +112,29 @@ export const getLogStats = catchAsyncErrors(async (req, res, next) => {
       .lean(),
   ]);
 
+  const maxLogsLimit = settings.maxLogsLimit || 500;
+  const daysSinceLastDownload = settings.lastDownloadDate
+    ? Math.floor((now.getTime() - new Date(settings.lastDownloadDate).getTime()) / (1000 * 60 * 60 * 24))
+    : 999;
+
+  // Alert prompt: if never downloaded or >= 7 days since last download and logs exist
+  const shouldPromptDownload = totalLogs > 0 && (daysSinceLastDownload >= (settings.alertFrequencyDays || 7) || totalLogs >= maxLogsLimit * 0.85);
+
   res.status(200).json({
     success: true,
     stats: {
+      totalLogs,
+      maxLogsLimit,
+      autoDeleteEnabled: settings.autoDeleteEnabled !== false,
+      capacityPercent: Math.min(100, Number(((totalLogs / maxLogsLimit) * 100).toFixed(1))),
       todayTotal,
       todayErrors,
       todayWarns,
       systemHealth: todayErrors === 0 ? "HEALTHY" : todayErrors < 5 ? "WARNING" : "CRITICAL",
       recentErrors,
+      lastDownloadDate: settings.lastDownloadDate,
+      daysSinceLastDownload,
+      shouldPromptDownload,
     },
   });
 });
@@ -136,5 +158,75 @@ export const clearLogs = catchAsyncErrors(async (req, res, next) => {
     success: true,
     message: `Successfully deleted ${result.deletedCount} log entries.`,
     deletedCount: result.deletedCount,
+  });
+});
+
+// 4. Get Log Settings
+export const getLogSettings = catchAsyncErrors(async (req, res, next) => {
+  let settings = await LogSettings.findOne();
+  if (!settings) {
+    settings = await LogSettings.create({ maxLogsLimit: 500, autoDeleteEnabled: true });
+  }
+  res.status(200).json({ success: true, settings });
+});
+
+// 5. Update Log Settings
+export const updateLogSettings = catchAsyncErrors(async (req, res, next) => {
+  const { maxLogsLimit, autoDeleteEnabled, alertFrequencyDays } = req.body;
+
+  const update = {};
+  if (maxLogsLimit !== undefined) {
+    const val = Number(maxLogsLimit);
+    if (isNaN(val) || val <= 0) {
+      return next(new ErrorHandler("Max logs limit must be a positive number", 400));
+    }
+    update.maxLogsLimit = val;
+  }
+
+  if (autoDeleteEnabled !== undefined) {
+    update.autoDeleteEnabled = Boolean(autoDeleteEnabled);
+  }
+
+  if (alertFrequencyDays !== undefined) {
+    const val = Number(alertFrequencyDays);
+    if (!isNaN(val) && val > 0) update.alertFrequencyDays = val;
+  }
+
+  const settings = await LogSettings.findOneAndUpdate({}, update, {
+    new: true,
+    upsert: true,
+  });
+
+  // Check if current log count exceeds new limit
+  if (settings.autoDeleteEnabled !== false) {
+    const count = await Log.countDocuments();
+    if (count > settings.maxLogsLimit) {
+      const excess = count - settings.maxLogsLimit;
+      const oldest = await Log.find().sort({ createdAt: 1 }).limit(excess).select("_id");
+      if (oldest.length > 0) {
+        await Log.deleteMany({ _id: { $in: oldest.map((l) => l._id) } });
+      }
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Log settings updated successfully",
+    settings,
+  });
+});
+
+// 6. Mark Logs Downloaded (Record download timestamp)
+export const markLogsDownloaded = catchAsyncErrors(async (req, res, next) => {
+  const settings = await LogSettings.findOneAndUpdate(
+    {},
+    { lastDownloadDate: new Date() },
+    { new: true, upsert: true }
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Logs download recorded",
+    lastDownloadDate: settings.lastDownloadDate,
   });
 });

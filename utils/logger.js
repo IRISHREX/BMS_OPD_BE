@@ -1,4 +1,5 @@
 import { Log } from "../models/logSchema.js";
+import { LogSettings } from "../models/logSettingsSchema.js";
 
 /**
  * Non-blocking system logger utility
@@ -56,6 +57,33 @@ export const logEvent = async ({
       url,
       statusCode: resolvedStatus,
       metadata,
+    });
+
+    // Asynchronous auto-prune to ensure logs don't exceed max limit (default: 500)
+    setImmediate(async () => {
+      try {
+        let settings = await LogSettings.findOne();
+        if (!settings) {
+          settings = await LogSettings.create({ maxLogsLimit: 500, autoDeleteEnabled: true });
+        }
+
+        if (settings.autoDeleteEnabled !== false) {
+          const limit = settings.maxLogsLimit || 500;
+          const count = await Log.countDocuments();
+          if (count > limit) {
+            const excess = count - limit;
+            const oldestLogs = await Log.find()
+              .sort({ createdAt: 1 })
+              .limit(excess)
+              .select("_id");
+            if (oldestLogs.length > 0) {
+              await Log.deleteMany({ _id: { $in: oldestLogs.map((l) => l._id) } });
+            }
+          }
+        }
+      } catch (pruneErr) {
+        console.error("[Logger] Auto-prune failed:", pruneErr.message);
+      }
     });
   } catch (err) {
     // Fail-safe: logging error should never interrupt the main thread

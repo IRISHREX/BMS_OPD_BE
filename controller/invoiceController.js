@@ -4,6 +4,7 @@ import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { syncReportForAppointment } from "./appointmentController.js";
 import { User } from "../models/userSchema.js";
+import { logEvent } from "../utils/logger.js";
 
 // Create invoice and attach to appointment
 export const createInvoice = catchAsyncErrors(async (req, res, next) => {
@@ -68,6 +69,23 @@ export const createInvoice = catchAsyncErrors(async (req, res, next) => {
     appointment.invoices.push(invoice._id);
     await appointment.save();
   }
+
+  logEvent({
+    level: "INFO",
+    category: "Billing",
+    action: "INVOICE_CREATE",
+    message: `Bill/Invoice #${invoice.invoiceNumber} created (Amount: ₹${invoice.total})`,
+    req,
+    metadata: {
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      total: invoice.total,
+      subtotal: invoice.subtotal,
+      patientId,
+      appointmentId,
+      status: invoice.status,
+    },
+  });
 
   res.status(201).json({ success: true, invoice });
 });
@@ -180,6 +198,22 @@ export const updateInvoice = catchAsyncErrors(async (req, res, next) => {
     }
 
     invoice = await Invoice.findById(id).populate('patient doctor appointment');
+
+    logEvent({
+      level: "INFO",
+      category: "Billing",
+      action: "INVOICE_UPDATE",
+      message: `Invoice #${invoice?.invoiceNumber || id} updated (Status: ${invoice?.status}, Total: ₹${invoice?.total})`,
+      req,
+      metadata: {
+        invoiceId: id,
+        invoiceNumber: invoice?.invoiceNumber,
+        total: invoice?.total,
+        status: invoice?.status,
+        itemsCount: (invoice?.items || []).length,
+      },
+    });
+
     res.status(200).json({ success: true, invoice });
   } catch (e) {
     console.warn('Failed to update/normalize invoice:', e.message);
@@ -203,6 +237,20 @@ export const deleteInvoice = catchAsyncErrors(async (req, res, next) => {
   }
 
   await invoice.deleteOne();
+
+  logEvent({
+    level: "WARN",
+    category: "Billing",
+    action: "INVOICE_DELETE",
+    message: `Invoice #${invoice.invoiceNumber} deleted (Amount: ₹${invoice.total})`,
+    req,
+    metadata: {
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      total: invoice.total,
+    },
+  });
+
   res.status(200).json({ success: true, message: 'Invoice deleted' });
 });
 
@@ -420,6 +468,18 @@ export const settleInvoicesForAppointment = catchAsyncErrors(async (req, res, ne
     console.warn('Failed to update appointment/report after settlement', e.message);
   }
 
+  logEvent({
+    level: "INFO",
+    category: "Billing",
+    action: "INVOICE_SETTLE",
+    message: `Settled ${updated.length} invoice(s) for appointment #${id}`,
+    req,
+    metadata: {
+      appointmentId: id,
+      settledCount: updated.length,
+    },
+  });
+
   res.status(200).json({ success: true, updatedCount: updated.length, invoices: updated });
 });
 
@@ -567,6 +627,20 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
       </div>
     </body>
   </html>`;
+
+  logEvent({
+    level: "INFO",
+    category: "Billing",
+    action: "INVOICE_DOWNLOAD",
+    message: `Receipt/Invoice #${invoice.invoiceNumber || invoice._id} viewed/downloaded for ${patientName}`,
+    req,
+    metadata: {
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      patient: patientName,
+      doctor: doctorName,
+    },
+  });
 
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('Content-Disposition', `inline; filename="receipt-${invoice._id}.html"`);

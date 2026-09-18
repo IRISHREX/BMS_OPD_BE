@@ -202,6 +202,20 @@ export const addNewCompounder = catchAsyncErrors(async (req, res, next) => {
     await User.updateMany({ _id: { $in: doctorIds } }, { $addToSet: { compounders: compounder._id } });
   }
 
+  logEvent({
+    level: "INFO",
+    category: "Staff",
+    action: "COMPOUNDER_CREATE",
+    message: `Compounder created: ${compounder.firstName} ${compounder.lastName} (${compounder.email})`,
+    req,
+    metadata: {
+      compounderId: compounder._id,
+      name: `${compounder.firstName} ${compounder.lastName}`,
+      email: compounder.email,
+      assignedDoctors: doctorIds,
+    },
+  });
+
   res.status(200).json({ success: true, message: 'New Compounder Registered', compounder });
 });
 
@@ -304,6 +318,32 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
       if (user.role === 'Patient') {
         await Appointment.deleteMany({ patientId: user._id });
       }
+
+      const role = user.role || 'User';
+      let action = "USER_DELETE";
+      let category = "User";
+      if (role === 'Doctor') {
+        action = "DOCTOR_DELETE";
+        category = "Staff";
+      } else if (role === 'Compounder') {
+        action = "COMPOUNDER_DELETE";
+        category = "Staff";
+      }
+
+      logEvent({
+        level: "WARN",
+        category,
+        action,
+        message: `${role} "${user.firstName || ''} ${user.lastName || ''}".trim() (${user.email || user.phone || 'ID: ' + user._id}) was deleted`,
+        req,
+        metadata: {
+          userId: user._id,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+          role: user.role,
+          email: user.email,
+        },
+      });
+
       res.status(200).json({ success: true, message: 'User deleted successfully' });
     });
 
@@ -391,6 +431,21 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     signImage: signImageUrl,
     headerImage: headerImageUrl,
     compounders: compoundersList,
+  });
+
+  logEvent({
+    level: "INFO",
+    category: "Staff",
+    action: "DOCTOR_CREATE",
+    message: `Doctor registered: Dr. ${doctor.firstName} ${doctor.lastName} (${doctor.doctorDepartment || "General"})`,
+    req,
+    metadata: {
+      doctorId: doctor._id,
+      name: `Dr. ${doctor.firstName} ${doctor.lastName}`,
+      department: doctor.doctorDepartment,
+      email: doctor.email,
+      compounders: compoundersList,
+    },
   });
 
   res.status(200).json({
@@ -597,6 +652,34 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
   }
 
   await doctor.save();
+
+  if (compounderId) {
+    logEvent({
+      level: "INFO",
+      category: "Staff",
+      action: "ASSIGN_COMPOUNDER_TO_DOCTOR",
+      message: `Compounder #${compounderId} assigned to Dr. ${doctor.firstName} ${doctor.lastName}`,
+      req,
+      metadata: {
+        doctorId: doctor._id,
+        doctorName: `Dr. ${doctor.firstName} ${doctor.lastName}`,
+        compounderId,
+      },
+    });
+  } else {
+    logEvent({
+      level: "INFO",
+      category: "Staff",
+      action: "DOCTOR_UPDATE",
+      message: `Dr. ${doctor.firstName} ${doctor.lastName} profile updated`,
+      req,
+      metadata: {
+        doctorId: doctor._id,
+        name: `Dr. ${doctor.firstName} ${doctor.lastName}`,
+        department: doctor.doctorDepartment,
+      },
+    });
+  }
 
   res.status(200).json({
     success: true,
