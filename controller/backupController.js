@@ -4,6 +4,7 @@ import ErrorHandler from "../middlewares/error.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
 import { BackupSettings } from "../models/backupSettingsSchema.js";
+import { logEvent } from "../utils/logger.js";
 
 // Helper to get or create settings
 const getOrCreateSettings = async () => {
@@ -175,6 +176,16 @@ export const exportAppointmentsData = catchAsyncErrors(async (req, res, next) =>
   // Update last backup date
   await BackupSettings.updateOne({}, { lastBackupDate: new Date() }, { upsert: true });
 
+  // Log audit event
+  logEvent({
+    level: "SUCCESS",
+    category: "Backup",
+    action: "EXPORT_APPOINTMENTS",
+    message: `Exported ${records.length} appointment records (range: ${range}).`,
+    req,
+    metadata: { count: records.length, range },
+  });
+
   res.status(200).json({
     success: true,
     count: records.length,
@@ -268,6 +279,16 @@ export const exportPatientsData = catchAsyncErrors(async (req, res, next) => {
   // Update last backup date
   await BackupSettings.updateOne({}, { lastBackupDate: new Date() }, { upsert: true });
 
+  // Log audit event
+  logEvent({
+    level: "SUCCESS",
+    category: "Backup",
+    action: "EXPORT_PATIENTS",
+    message: `Exported ${records.length} patient master records.`,
+    req,
+    metadata: { count: records.length },
+  });
+
   res.status(200).json({
     success: true,
     count: records.length,
@@ -298,6 +319,16 @@ export const updateBackupSettings = catchAsyncErrors(async (req, res, next) => {
   const settings = await BackupSettings.findOneAndUpdate({}, update, {
     new: true,
     upsert: true,
+  });
+
+  // Log audit event
+  logEvent({
+    level: "INFO",
+    category: "Settings",
+    action: "UPDATE_BACKUP_SETTINGS",
+    message: `Updated backup storage threshold to ${settings.storageLimitMB} MB, appointments threshold to ${settings.appointmentThreshold}.`,
+    req,
+    metadata: { storageLimitMB: settings.storageLimitMB, appointmentThreshold: settings.appointmentThreshold },
   });
 
   res.status(200).json({

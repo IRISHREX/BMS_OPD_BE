@@ -3,6 +3,7 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { User } from "../models/userSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { generateToken } from "../utils/jwtToken.js";
+import { logEvent } from "../utils/logger.js";
 import fs from "fs";
 import path from "path";
 
@@ -55,11 +56,38 @@ export const login = catchAsyncErrors(async (req, res, next) => {
 
   const isPasswordMatch = await user.comparePassword(password);
   if (!isPasswordMatch) {
+    logEvent({
+      level: "WARN",
+      category: "Auth",
+      action: "LOGIN_FAILED",
+      message: `Failed login attempt (bad password) for ${email} with role ${role}.`,
+      req,
+      statusCode: 400,
+    });
     return next(new ErrorHandler("Invalid Email Or Password!", 400));
   }
   if (role !== user.role) {
+    logEvent({
+      level: "WARN",
+      category: "Auth",
+      action: "LOGIN_ROLE_MISMATCH",
+      message: `Login attempt for ${email} with mismatched role '${role}' (actual: '${user.role}').`,
+      req,
+      statusCode: 400,
+    });
     return next(new ErrorHandler(`User Not Found With This Role!`, 400));
   }
+
+  logEvent({
+    level: "SUCCESS",
+    category: "Auth",
+    action: "LOGIN_SUCCESS",
+    message: `${user.firstName || user.name || email} (${user.role}) logged in successfully.`,
+    user,
+    req,
+    statusCode: 200,
+  });
+
   generateToken(user, "Login Successfully!", 201, res);
 });
 // Get all compounders

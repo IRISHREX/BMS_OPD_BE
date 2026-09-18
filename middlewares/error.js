@@ -1,3 +1,5 @@
+import { logEvent } from "../utils/logger.js";
+
 class ErrorHandler extends Error {
   constructor(message, statusCode) {
     super(message);
@@ -11,7 +13,6 @@ export const errorMiddleware = (err, req, res, next) => {
 
   if (err.name === "CastError") {
     const message = `Resource not found. Invalid: ${err.path}`;
-    // Re-assign `err` instead of re-declaring with `const` or `let`
     err = new ErrorHandler(message, 400);
   }
 
@@ -29,6 +30,21 @@ export const errorMiddleware = (err, req, res, next) => {
     const message = `Json Web Token is Expired, Try again!`;
     err = new ErrorHandler(message, 400);
   }
+
+  // Asynchronously record error log
+  const level = err.statusCode >= 500 ? "ERROR" : "WARN";
+  logEvent({
+    level,
+    category: "System",
+    action: err.name || "API_ERROR",
+    message: err.message,
+    req,
+    statusCode: err.statusCode,
+    metadata: {
+      stack: err.stack ? err.stack.slice(0, 1000) : undefined,
+      code: err.code,
+    },
+  });
 
   return res.status(err.statusCode).json({
     success: false,
