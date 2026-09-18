@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Template } from "../models/templateSchema.js";
@@ -5,11 +6,19 @@ import { Template } from "../models/templateSchema.js";
 // Create or update a template
 export const createOrUpdateTemplate = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const doctorId = req.user._id;
+  let doctorId = req.user._id;
+
+  if (req.user.role === 'Admin' && req.body.doctorId && mongoose.Types.ObjectId.isValid(req.body.doctorId)) {
+    doctorId = req.body.doctorId;
+  }
+
   const templateData = { ...req.body, doctorId };
 
   // PUT /:id → update existing
   if (id) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(new ErrorHandler("Invalid template ID", 400));
+    }
     let template = await Template.findById(id);
     if (!template) {
       return next(new ErrorHandler("Template not found", 404));
@@ -44,9 +53,12 @@ export const createOrUpdateTemplate = catchAsyncErrors(async (req, res, next) =>
 export const getMyTemplates = catchAsyncErrors(async (req, res, next) => {
   let doctorId = req.user._id;
   
-  // Admin might want to see someone else's templates? Not implementing now.
-  // Actually, wait, Preview might need a specific doctor's templates if admin is viewing.
-  if (req.query.doctorId) {
+  if (
+    req.query.doctorId &&
+    req.query.doctorId !== "undefined" &&
+    req.query.doctorId !== "null" &&
+    mongoose.Types.ObjectId.isValid(req.query.doctorId)
+  ) {
     doctorId = req.query.doctorId;
   }
 
@@ -57,6 +69,9 @@ export const getMyTemplates = catchAsyncErrors(async (req, res, next) => {
 // Delete a template
 export const deleteTemplate = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return next(new ErrorHandler("Invalid template ID", 400));
+  }
   const template = await Template.findById(id);
   
   if (!template) {

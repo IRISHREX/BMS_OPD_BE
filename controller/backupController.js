@@ -59,15 +59,16 @@ export const getBackupStats = catchAsyncErrors(async (req, res, next) => {
   const usedMB = Number((totalSizeBytes / (1024 * 1024)).toFixed(2));
   const appointmentsMB = Number((appointmentsSizeBytes / (1024 * 1024)).toFixed(2));
   const usersMB = Number((usersSizeBytes / (1024 * 1024)).toFixed(2));
-  const limitMB = settings.storageLimitMB || 1024;
-  const appointmentThreshold = settings.appointmentThreshold || 1000;
+  const limitMB = (settings.storageLimitMB && settings.storageLimitMB > 0) ? settings.storageLimitMB : 1024;
+  const appointmentThreshold = (settings.appointmentThreshold && settings.appointmentThreshold > 0) ? settings.appointmentThreshold : 1000;
+  const usedPercentage = Math.min(100, Number(((usedMB / limitMB) * 100).toFixed(1)));
 
   res.status(200).json({
     success: true,
     stats: {
       usedMB,
       limitMB,
-      usedPercentage: Math.min(100, Number(((usedMB / limitMB) * 100).toFixed(1))),
+      usedPercentage,
       isStorageExceeded: usedMB >= limitMB,
       breakdown: {
         appointmentsMB,
@@ -109,7 +110,17 @@ export const exportAppointmentsData = catchAsyncErrors(async (req, res, next) =>
       { createdAt: { $gte: monthAgo } },
       { appointment_date: { $gte: monthAgo.toISOString().slice(0, 10) } }
     ];
-  } else if (range === "custom" && (from || to)) {
+  } else if (range === "custom") {
+    if (from && isNaN(new Date(from).getTime())) {
+      return next(new ErrorHandler("Invalid 'from' date format", 400));
+    }
+    if (to && isNaN(new Date(to).getTime())) {
+      return next(new ErrorHandler("Invalid 'to' date format", 400));
+    }
+    if (from && to && new Date(from) > new Date(to)) {
+      return next(new ErrorHandler("'From' date cannot be after 'To' date", 400));
+    }
+
     const dateFilter = {};
     if (from) dateFilter.$gte = new Date(from);
     if (to) {
@@ -117,10 +128,13 @@ export const exportAppointmentsData = catchAsyncErrors(async (req, res, next) =>
       toDate.setHours(23, 59, 59, 999);
       dateFilter.$lte = toDate;
     }
-    query.$or = [
-      { createdAt: dateFilter },
-      { appointment_date: { ...(from && { $gte: from }), ...(to && { $lte: to }) } }
-    ];
+
+    if (from || to) {
+      query.$or = [
+        { createdAt: dateFilter },
+        { appointment_date: { ...(from && { $gte: String(from).slice(0, 10) }), ...(to && { $lte: String(to).slice(0, 10) }) } }
+      ];
+    }
   }
 
   const appointments = await Appointment.find(query).sort({ createdAt: -1 });
@@ -195,39 +209,53 @@ export const exportPatientsData = catchAsyncErrors(async (req, res, next) => {
   const patientMap = new Map();
 
   patientUsers.forEach((p) => {
-    const key = `${p.name || `${p.firstName} ${p.lastName || ""}`.trim()}_${p.phone || ""}`.toLowerCase();
+    const pName = p.name || `${p.firstName || ""} ${p.lastName || ""}`.trim() || "Unknown Patient";
+    const phone = p.phone || "";
+    const key = `${pName}_${phone}`.toLowerCase();
     patientMap.set(key, {
       PatientID: p._id.toString(),
-      Name: p.name || `${p.firstName} ${p.lastName || ""}`.trim(),
+      Name: pName,
       Age: p.age ? `${p.age} Yrs` : "-",
       Gender: p.gender || "-",
-      Phone: p.phone || "-",
+      Phone: phone || "-",
       Email: p.email || "-",
       Address: p.address || "-",
       TotalVisits: 1,
-      RegisteredDate: p.createdAt ? p.createdAt.toISOString().slice(0, 10) : "-",
-      LastVisit: p.updatedAt ? p.updatedAt.toISOString().slice(0, 10) : "-",
+      RegisteredDate: p.createdAt ? new Date(p.createdAt).toISOString().slice(0, 10) : "-",
+      LastVisit: p.updatedAt ? new Date(p.updatedAt).toISOString().slice(0, 10) : "-",
     });
   });
 
   appointmentPatients.forEach((ap) => {
-    const key = `${ap._id}_${ap.phone || ""}`.toLowerCase();
+    const apName = ap._id || "Unknown Patient";
+    const phone = ap.phone || "";
+    const key = `${apName}_${phone}`.toLowerCase();
+
+    const formatDateSafe = (d) => {
+      if (!d) return "-";
+      try {
+        return new Date(d).toISOString().slice(0, 10);
+      } catch (_) {
+        return "-";
+      }
+    };
+
     if (patientMap.has(key)) {
       const existing = patientMap.get(key);
-      existing.TotalVisits = Math.max(existing.TotalVisits, ap.totalAppointments);
-      if (ap.lastVisit) existing.LastVisit = ap.lastVisit.toISOString().slice(0, 10);
+      existing.TotalVisits = Math.max(existing.TotalVisits, ap.totalAppointments || 1);
+      if (ap.lastVisit) existing.LastVisit = formatDateSafe(ap.lastVisit);
     } else {
       patientMap.set(key, {
         PatientID: `PT-${Math.abs(key.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)).toString(16).slice(0, 8)}`,
-        Name: ap._id,
+        Name: apName,
         Age: ap.age ? `${ap.age} Yrs` : "-",
         Gender: ap.gender || "-",
-        Phone: ap.phone || "-",
+        Phone: phone || "-",
         Email: "-",
         Address: ap.address || "-",
-        TotalVisits: ap.totalAppointments,
-        RegisteredDate: ap.firstVisit ? ap.firstVisit.toISOString().slice(0, 10) : "-",
-        LastVisit: ap.lastVisit ? ap.lastVisit.toISOString().slice(0, 10) : "-",
+        TotalVisits: ap.totalAppointments || 1,
+        RegisteredDate: formatDateSafe(ap.firstVisit),
+        LastVisit: formatDateSafe(ap.lastVisit),
       });
     }
   });
@@ -252,8 +280,20 @@ export const updateBackupSettings = catchAsyncErrors(async (req, res, next) => {
   const { storageLimitMB, appointmentThreshold } = req.body;
 
   const update = {};
-  if (storageLimitMB !== undefined) update.storageLimitMB = Number(storageLimitMB);
-  if (appointmentThreshold !== undefined) update.appointmentThreshold = Number(appointmentThreshold);
+  if (storageLimitMB !== undefined) {
+    const val = Number(storageLimitMB);
+    if (isNaN(val) || val <= 0) {
+      return next(new ErrorHandler("Storage limit must be a positive number (MB)", 400));
+    }
+    update.storageLimitMB = val;
+  }
+  if (appointmentThreshold !== undefined) {
+    const val = Number(appointmentThreshold);
+    if (isNaN(val) || val <= 0) {
+      return next(new ErrorHandler("Appointment threshold must be a positive number", 400));
+    }
+    update.appointmentThreshold = val;
+  }
 
   const settings = await BackupSettings.findOneAndUpdate({}, update, {
     new: true,
