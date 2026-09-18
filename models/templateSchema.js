@@ -54,6 +54,10 @@ const templateSchema = new mongoose.Schema({
   isDefault: {
     type: Boolean,
     default: false,
+  },
+  layoutConfig: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
   }
 }, { timestamps: true });
 
