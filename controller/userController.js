@@ -492,6 +492,7 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     consultationFee,
     compounderId,
     compounderName,
+    prescriptionTemplate,
   } = req.body;
 
   if (name) {
@@ -516,6 +517,7 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     doctor.visitingFee = fee;
     doctor.consultationFee = fee;
   }
+  if (prescriptionTemplate) doctor.prescriptionTemplate = prescriptionTemplate;
 
   if (compounderId) {
     if (!doctor.compounders) doctor.compounders = [];

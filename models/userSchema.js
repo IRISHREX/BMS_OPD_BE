@@ -82,6 +82,11 @@ const userSchema = new mongoose.Schema({
   compounders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   // If this user is a Compounder, store assigned doctor ids
   assignedDoctors: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  prescriptionTemplate: {
+    type: String,
+    enum: ["default", "Template 1: Right-side margin layout", "Template 2: Left-side margin layout"],
+    default: "default",
+  },
 });
 
 userSchema.pre("save", async function (next) {
