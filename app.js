@@ -16,6 +16,7 @@ import clinicalFindingsRouter from "./router/clinicalFindingsRouter.js";
 import hospitalRouter from "./router/hospitalRouter.js";
 import referralRouter from "./router/referralRouter.js";
 import capacityRouter from "./router/capacityRouter.js";
+import templateRouter from "./router/templateRouter.js";
 import setupSwagger from "./utils/swagger.js";
 
 const app = express();
@@ -70,6 +71,7 @@ app.use("/api/v1/medicine", medicineRouter);
 app.use("/api/v1/hospital", hospitalRouter);
 app.use("/api/v1/referral", referralRouter);
 app.use("/api/v1/capacity-scheduler", capacityRouter);
+app.use("/api/v1/template", templateRouter);
 
 // Debug endpoint to inspect request cookies, headers and authenticated user.
 // This is intentionally only enabled when not in production to avoid exposing internals.
