@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Message } from '../models/messageSchema.js';
@@ -30,7 +31,7 @@ export const sendMessage = catchAsyncErrors(async (req, res, next) => {
   // Populate recipient for consistent frontend shape
   await created.populate('recipient');
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Message Sent!",
     data: created,
@@ -105,7 +106,7 @@ export const getAllMessages = catchAsyncErrors(async (req, res, next) => {
   const readCount = await Message.countDocuments({ ...query, read: true });
   const unreadCount = await Message.countDocuments({ ...query, read: false });
 
-  res.status(200).json({ success: true, messages, total, page, totalPages: Math.ceil(total/limit) || 0, readCount, unreadCount, doctors });
+  return res.status(200).json({ success: true, messages, total, page, totalPages: Math.ceil(total/limit) || 0, readCount, unreadCount, doctors });
 });
 
 export const updateMessage = catchAsyncErrors(async (req, res, next) => {
@@ -113,7 +114,7 @@ export const updateMessage = catchAsyncErrors(async (req, res, next) => {
   const payload = { ...req.body };
   const updated = await Message.findByIdAndUpdate(id, payload, { new: true });
   if (!updated) return next(new ErrorHandler('Message not found', 404));
-  res.status(200).json({ success: true, message: 'Updated', data: updated });
+  return res.status(200).json({ success: true, message: 'Updated', data: updated });
 });
 
 export const deleteMessageById = catchAsyncErrors(async (req, res, next) => {
@@ -121,43 +122,43 @@ export const deleteMessageById = catchAsyncErrors(async (req, res, next) => {
   const m = await Message.findById(id);
   if (!m) return next(new ErrorHandler('Message not found', 404));
   await m.deleteOne();
-  res.status(200).json({ success: true, message: 'Deleted' });
+  return res.status(200).json({ success: true, message: 'Deleted' });
 });
 
 export const bulkDeleteMessages = catchAsyncErrors(async (req, res, next) => {
   const ids = req.body?.ids;
   if (!Array.isArray(ids) || ids.length === 0) return next(new ErrorHandler('No ids provided', 400));
   const result = await Message.deleteMany({ _id: { $in: ids } });
-  res.status(200).json({ success: true, deletedCount: result.deletedCount });
+  return res.status(200).json({ success: true, deletedCount: result.deletedCount });
 });
 
 export const bulkUpdateMessages = catchAsyncErrors(async (req, res, next) => {
   const { ids, ...payload } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) return next(new ErrorHandler('No ids provided', 400));
   const result = await Message.updateMany({ _id: { $in: ids } }, { $set: payload });
-  res.status(200).json({ success: true, updatedCount: result.nModified });
+  return res.status(200).json({ success: true, updatedCount: result.modifiedCount ?? result.nModified ?? 0 });
 });
 
-export const getMessagesForDoctor = async (req, res, next) => {
-  try {
-    const doctorId = req.params.id;
-    // Populate recipient so frontend can render recipient details (firstName/lastName)
-    const messages = await Message.find({ recipient: doctorId }).populate('recipient').sort({ createdAt: -1 });
-
-    // Provide counts and basic pagination metadata similar to getAllMessages
-    const total = messages.length;
-    const readCount = messages.filter(m => m.read).length;
-    const unreadCount = total - readCount;
-
-    res.status(200).json({ success: true, messages, total, page: 1, totalPages: 1, readCount, unreadCount });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch messages' });
+export const getMessagesForDoctor = catchAsyncErrors(async (req, res, next) => {
+  const doctorId = req.params.id;
+  if (!doctorId || !mongoose.isValidObjectId(doctorId)) {
+    return next(new ErrorHandler('Invalid doctor ID', 400));
   }
-};
+  // Populate recipient so frontend can render recipient details (firstName/lastName)
+  const messages = await Message.find({ recipient: doctorId }).populate('recipient').sort({ createdAt: -1 });
+
+  // Provide counts and basic pagination metadata similar to getAllMessages
+  const total = messages.length;
+  const readCount = messages.filter(m => m.read).length;
+  const unreadCount = total - readCount;
+
+  return res.status(200).json({ success: true, messages, total, page: 1, totalPages: 1, readCount, unreadCount });
+});
+
 export const searchMessages = catchAsyncErrors(async (req, res, next) => {
   const { q } = req.query;
   if (!q) return res.status(200).json({ success: true, messages: [] });
   const r = new RegExp(q, 'i');
   const messages = await Message.find({ $or: [ { message: r }, { email: r }, { phone: r } ] }).sort({ createdAt: -1 });
-  res.status(200).json({ success: true, messages });
+  return res.status(200).json({ success: true, messages });
 });

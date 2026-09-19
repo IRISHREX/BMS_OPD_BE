@@ -89,7 +89,7 @@ export const createInvoice = catchAsyncErrors(async (req, res, next) => {
     },
   });
 
-  res.status(201).json({ success: true, invoice });
+  return res.status(201).json({ success: true, invoice });
 });
 
 // Get single invoice
@@ -97,7 +97,7 @@ export const getInvoice = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
   const invoice = await Invoice.findById(id).populate('patient doctor appointment');
   if (!invoice) return next(new ErrorHandler('Invoice not found', 404));
-  res.status(200).json({ success: true, invoice });
+  return res.status(200).json({ success: true, invoice });
 });
 
 // List invoices with optional filters (patient, doctor, appointment, status, invoiceNumber)
@@ -122,7 +122,7 @@ export const listInvoices = catchAsyncErrors(async (req, res, next) => {
 
   const skip = (Number(page) - 1) * Number(limit);
   const invoices = await Invoice.find(query).populate('patient doctor appointment').skip(skip).limit(Number(limit)).sort({ issuedAt: -1 });
-  res.status(200).json({ success: true, invoices });
+  return res.status(200).json({ success: true, invoices });
 });
 
 // Update invoice (partial updates allowed)
@@ -216,7 +216,7 @@ export const updateInvoice = catchAsyncErrors(async (req, res, next) => {
       },
     });
 
-    res.status(200).json({ success: true, invoice });
+    return res.status(200).json({ success: true, invoice });
   } catch (e) {
     console.warn('Failed to update/normalize invoice:', e.message);
     return next(new ErrorHandler('Failed to update invoice', 500));
@@ -253,7 +253,7 @@ export const deleteInvoice = catchAsyncErrors(async (req, res, next) => {
     },
   });
 
-  res.status(200).json({ success: true, message: 'Invoice deleted' });
+  return res.status(200).json({ success: true, message: 'Invoice deleted' });
 });
 
 // Search invoices by invoiceNumber, patient name or phone (joins patient)
@@ -267,7 +267,7 @@ export const searchInvoices = catchAsyncErrors(async (req, res, next) => {
   const patientIds = (patientMatches || []).map((p) => p._id);
 
   const invoices = await Invoice.find({ $or: [{ invoiceNumber: regex }, { patient: { $in: patientIds } }] }).populate('patient doctor appointment');
-  res.status(200).json({ success: true, invoices });
+  return res.status(200).json({ success: true, invoices });
 });
 
 // Get invoices by appointment id
@@ -278,7 +278,7 @@ export const getInvoicesByAppointment = catchAsyncErrors(async (req, res, next) 
   if (!invoices || invoices.length === 0) {
     return next(new ErrorHandler('No invoices found for this appointment', 404));
   }
-  res.status(200).json({ success: true, invoices });
+  return res.status(200).json({ success: true, invoices });
 });
 
 // Stats: total earning and total due, optionally grouped by day/week/month within a date range
@@ -344,7 +344,7 @@ export const getInvoiceStats = catchAsyncErrors(async (req, res, next) => {
 
   const groupArray = Object.values(groups).sort((a, b) => (a.period > b.period ? 1 : -1));
 
-  res.status(200).json({ success: true, totalEarning, totalDue, groups: groupArray });
+  return res.status(200).json({ success: true, totalEarning, totalDue, groups: groupArray });
 });
 
 // Update invoices by appointment id (apply the same partial update to all invoices for the appointment)
@@ -420,7 +420,7 @@ export const updateInvoicesByAppointment = catchAsyncErrors(async (req, res, nex
     updatedInvoices.push(inv);
   }
 
-  res.status(200).json({ success: true, updatedCount: updatedInvoices.length, invoices: updatedInvoices });
+  return res.status(200).json({ success: true, updatedCount: updatedInvoices.length, invoices: updatedInvoices });
 });
 
 // Settle all invoices for an appointment: append payments equal to remaining due for each invoice
@@ -482,7 +482,7 @@ export const settleInvoicesForAppointment = catchAsyncErrors(async (req, res, ne
     },
   });
 
-  res.status(200).json({ success: true, updatedCount: updated.length, invoices: updated });
+  return res.status(200).json({ success: true, updatedCount: updated.length, invoices: updated });
 });
 
 export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
@@ -701,7 +701,7 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
 
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('Content-Disposition', `inline; filename="receipt-${invoice._id}.html"`);
-  res.status(200).send(html);
+  return res.status(200).send(html);
 });
 
 // Simple HTML escape helper

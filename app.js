@@ -73,6 +73,7 @@ app.use("/api/v1/medicine", medicineRouter);
 app.use("/api/v1/hospital", hospitalRouter);
 app.use("/api/v1/referral", referralRouter);
 app.use("/api/v1/capacity-scheduler", capacityRouter);
+app.use("/api/v1/doctor-capacity", capacityRouter);
 app.use("/api/v1/template", templateRouter);
 app.use("/api/v1/backup", backupRouter);
 app.use("/api/v1/logs", logRouter);

@@ -29,7 +29,9 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
   if (s || e) invMatch.issuedAt = {};
   if (s) invMatch.issuedAt.$gte = s;
   if (e) invMatch.issuedAt.$lte = e;
-  if (doctorId) invMatch.doctor = mongoose.Types.ObjectId(doctorId);
+  if (doctorId && mongoose.isValidObjectId(doctorId)) {
+    invMatch.doctor = new mongoose.Types.ObjectId(doctorId);
+  }
 
   // Aggregation on invoices: compute paid (sum payments) and unpaid (total - sum payments)
   const invPipeline = [
@@ -83,7 +85,9 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
     if (s || e) apptMatch.appointment_date = {};
     if (s) apptMatch.appointment_date.$gte = s.toISOString();
     if (e) apptMatch.appointment_date.$lte = e.toISOString();
-    if (doctorId) apptMatch.doctorId = mongoose.Types.ObjectId(doctorId);
+    if (doctorId && mongoose.isValidObjectId(doctorId)) {
+      apptMatch.doctorId = new mongoose.Types.ObjectId(doctorId);
+    }
     // only those without invoices
     apptMatch.$or = [{ invoices: { $exists: false } }, { invoices: { $size: 0 } }];
 
@@ -113,7 +117,7 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
   // convert map to sorted array
   const periods = Array.from(byPeriod.values()).sort((x, y) => x.period.localeCompare(y.period));
 
-  res.status(200).json({ success: true, totals: { revenue: totalRevenue, due: totalDue }, byPeriod: periods });
+  return res.status(200).json({ success: true, totals: { revenue: totalRevenue, due: totalDue }, byPeriod: periods });
 });
 
 // List / search persisted report entries
@@ -228,7 +232,7 @@ export const listReports = catchAsyncErrors(async (req, res, next) => {
     })
     .lean();
 
-  res.status(200).json({ success: true, total, page: Number(page), limit: Number(limit), entries });
+  return res.status(200).json({ success: true, total, page: Number(page), limit: Number(limit), entries });
 });
 
 // Create or update a report entry (admin)
@@ -262,7 +266,7 @@ export const upsertReport = catchAsyncErrors(async (req, res, next) => {
     metadata: { appointmentId: payload.appointmentId, status: created.status, amount: created.amount },
   });
 
-  res.status(201).json({ success: true, report: created });
+  return res.status(201).json({ success: true, report: created });
 });
 
 // Update specific report entry (partial updates allowed)
@@ -283,7 +287,7 @@ export const updateReport = catchAsyncErrors(async (req, res, next) => {
     metadata: { reportId: id, appointmentId: entry.appointmentId, amount: entry.amount, status: entry.status },
   });
 
-  res.status(200).json({ success: true, report: entry });
+  return res.status(200).json({ success: true, report: entry });
 });
 
   // Get reports by doctor or patient email
@@ -322,7 +326,7 @@ export const deleteReport = catchAsyncErrors(async (req, res, next) => {
     metadata: { reportId: id, appointmentId: entry.appointmentId },
   });
 
-  res.status(200).json({ success: true, message: 'Report entry deleted' });
+  return res.status(200).json({ success: true, message: 'Report entry deleted' });
 });
 
 // Helper used by appointment flow to create/adjust report entry

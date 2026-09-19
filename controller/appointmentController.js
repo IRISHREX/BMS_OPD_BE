@@ -463,7 +463,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     },
   });
 
-  res.status(200).json({ success: true, appointment: populatedAppointment, message: 'Appointment Created!' });
+  return res.status(200).json({ success: true, appointment: populatedAppointment, message: 'Appointment Created!' });
 });
 
 export const getAllAppointments = catchAsyncErrors(async (req, res, next) => {
@@ -474,7 +474,7 @@ export const getAllAppointments = catchAsyncErrors(async (req, res, next) => {
     query.doctorId = requester._id;
   }
   const appointments = await Appointment.find(query).populate('invoices');
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     appointments,
   });
@@ -492,7 +492,7 @@ export const getAppointmentsByPatientId = catchAsyncErrors(async (req, res, next
   if (!appointments || appointments.length === 0) {
     return next(new ErrorHandler("No appointments found for this patient!", 404));
   }
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     appointments,
   });
@@ -528,7 +528,7 @@ export const searchAppointments = catchAsyncErrors(async (req, res, next) => {
   if (!appointments || appointments.length === 0) {
     return next(new ErrorHandler("No appointments found for given search/filters", 404));
   }
-  res.status(200).json({ success: true, appointments });
+  return res.status(200).json({ success: true, appointments });
 });
 
 // Suggest existing patients for autosuggest during appointment booking
@@ -564,7 +564,7 @@ export const suggestPatients = catchAsyncErrors(async (req, res, next) => {
     };
   }));
 
-  res.status(200).json({ success: true, patients: results });
+  return res.status(200).json({ success: true, patients: results });
 });
 
 // Update latest appointment for a patient by patient ID
@@ -643,7 +643,7 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
     },
   });
 
-  res.status(200).json({ success: true, appointment: updated, message: "Appointment Updated!" });
+  return res.status(200).json({ success: true, appointment: updated, message: "Appointment Updated!" });
 });
 
 export const updateAppointmentStatus = catchAsyncErrors(
@@ -837,7 +837,7 @@ export const updateAppointmentStatus = catchAsyncErrors(
       },
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Appointment Status Updated!",
       appointment,
@@ -881,7 +881,7 @@ export const deleteAppointment = catchAsyncErrors(async (req, res, next) => {
     },
   });
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Appointment and related invoices/reports deleted!",
   });
@@ -917,7 +917,7 @@ export const bulkDeleteAppointments = catchAsyncErrors(async (req, res, next) =>
       deletedCount: result.deletedCount,
     },
   });
-  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments and related invoices/reports deleted" });
+  return res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "Bulk appointments and related invoices/reports deleted" });
 });
 
 // Delete all appointments for a patient (to be called when deleting patient)
@@ -938,7 +938,7 @@ export const deleteAppointmentsByPatientId = catchAsyncErrors(async (req, res, n
     console.warn('Failed to delete invoices/reports for patient appointments', e.message);
   }
   const result = await Appointment.deleteMany({ patientId });
-  res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments and related invoices/reports for patient deleted" });
+  return res.status(200).json({ success: true, deletedCount: result.deletedCount, message: "All appointments and related invoices/reports for patient deleted" });
 });
 
 // Full update appointment by ID
@@ -1024,7 +1024,7 @@ export const updateAppointmentById = catchAsyncErrors(async (req, res, next) => 
 
   await appointment.save();
 
-  res.status(200).json({
+  return res.status(200).json({
     success: true,
     message: "Appointment updated successfully",
     appointment,
