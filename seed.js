@@ -1,10 +1,19 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import dns from "dns";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { User } from "./models/userSchema.js";
 import { Medicine } from "./models/medicineSchema.js";
+import { DiagnosticTest } from "./models/testSchema.js";
 import { MedicalAdvice } from "./models/medicalAdviceSchema.js";
 import { orthoMedicines, orthoAdvices } from "./orthoData.js";
+import { translateSqlToJson } from "./scripts/translateMedicineSql.js";
+import { translateTestsSqlToJson } from "./scripts/translateTestsSql.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config({ path: "./.env" });
@@ -372,6 +381,41 @@ const medicalAdvices = [
 // Seed Database Function
 
 medicines.push(...orthoMedicines);
+
+// Load and append SQL translated medicines from medicines.json
+const medicinesJsonPath = path.join(__dirname, "medicines.json");
+if (!fs.existsSync(medicinesJsonPath)) {
+  console.log("⚙️ medicines.json not found. Translating from medicine.sql...");
+  await translateSqlToJson();
+}
+
+if (fs.existsSync(medicinesJsonPath)) {
+  try {
+    const sqlMedicines = JSON.parse(fs.readFileSync(medicinesJsonPath, "utf-8"));
+    medicines.push(...sqlMedicines);
+    console.log(`📦 Loaded ${sqlMedicines.length} medicines from medicines.json`);
+  } catch (err) {
+    console.warn("⚠️ Warning: Failed to parse medicines.json:", err.message);
+  }
+}
+
+// Load and append SQL translated diagnostic tests from diagnosticTests.json
+const diagnosticTestsJsonPath = path.join(__dirname, "diagnosticTests.json");
+if (!fs.existsSync(diagnosticTestsJsonPath)) {
+  console.log("⚙️ diagnosticTests.json not found. Translating from pathology.sql & radio.sql...");
+  await translateTestsSqlToJson();
+}
+
+let diagnosticTests = [];
+if (fs.existsSync(diagnosticTestsJsonPath)) {
+  try {
+    diagnosticTests = JSON.parse(fs.readFileSync(diagnosticTestsJsonPath, "utf-8"));
+    console.log(`📦 Loaded ${diagnosticTests.length} diagnostic tests from diagnosticTests.json`);
+  } catch (err) {
+    console.warn("⚠️ Warning: Failed to parse diagnosticTests.json:", err.message);
+  }
+}
+
 medicalAdvices.push(...orthoAdvices);
 
 async function seedDatabase() {
@@ -387,8 +431,9 @@ async function seedDatabase() {
     if (isCleanRun) {
       console.log("🧹 Flag --clean detected: Purging existing seeded collections...");
       await User.deleteMany({ email: { $in: [...adminUsers, ...doctorUsers].map((u) => u.email) } });
-      await Medicine.deleteMany({ name: { $in: medicines.map((m) => m.name) } });
-      await MedicalAdvice.deleteMany({ name: { $in: medicalAdvices.map((a) => a.name) } });
+      await Medicine.deleteMany({});
+      await DiagnosticTest.deleteMany({});
+      await MedicalAdvice.deleteMany({});
       console.log("✅ Cleanup complete.");
     }
 
@@ -423,21 +468,64 @@ async function seedDatabase() {
     console.log(`✅ Doctor seeding done (${doctorsSeeded} created).`);
 
     // 3. Seed Medicines
-    console.log("\n💊 Seeding Medicines...");
-    let medicinesSeeded = 0;
+    console.log(`\n💊 Seeding Medicines (${medicines.length} candidates in dataset)...`);
+    const existingMeds = await Medicine.find({}, { name: 1 }).lean();
+    const existingNames = new Set(existingMeds.map((m) => m.name.toLowerCase().trim()));
+
+    const toInsert = [];
     for (const medData of medicines) {
-      const existing = await Medicine.findOne({ name: medData.name });
-      if (!existing) {
-        await Medicine.create(medData);
-        console.log(`   + Added Medicine: ${medData.name} (${medData.type})`);
-        medicinesSeeded++;
-      } else {
-        console.log(`   . Medicine already exists: ${medData.name}`);
+      const norm = medData.name.toLowerCase().trim();
+      if (!existingNames.has(norm)) {
+        toInsert.push(medData);
+        existingNames.add(norm); // guard against duplicates within dataset
       }
     }
-    console.log(`✅ Medicine seeding done (${medicinesSeeded} created).`);
 
-    // 4. Seed Medical Advice / Pathology Tests
+    let medicinesSeeded = 0;
+    if (toInsert.length > 0) {
+      console.log(`   + Inserting ${toInsert.length} new medicines in batches...`);
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+        const batch = toInsert.slice(i, i + BATCH_SIZE);
+        await Medicine.insertMany(batch, { ordered: false });
+        medicinesSeeded += batch.length;
+        console.log(`   + Inserted batch: ${medicinesSeeded}/${toInsert.length} medicines...`);
+      }
+    } else {
+      console.log("   . All medicines are already present in the database.");
+    }
+    console.log(`✅ Medicine seeding done (${medicinesSeeded} new inserted, ${existingMeds.length + medicinesSeeded} total in DB).`);
+
+    // 4. Seed Diagnostic Tests (Pathology & Radiology)
+    console.log(`\n🧪 Seeding Diagnostic Tests (${diagnosticTests.length} candidates in dataset)...`);
+    const existingTests = await DiagnosticTest.find({}, { name: 1 }).lean();
+    const existingTestNames = new Set(existingTests.map((t) => t.name.toLowerCase().trim()));
+
+    const testsToInsert = [];
+    for (const testData of diagnosticTests) {
+      const norm = testData.name.toLowerCase().trim();
+      if (!existingTestNames.has(norm)) {
+        testsToInsert.push(testData);
+        existingTestNames.add(norm); // guard against duplicates
+      }
+    }
+
+    let testsSeeded = 0;
+    if (testsToInsert.length > 0) {
+      console.log(`   + Inserting ${testsToInsert.length} new diagnostic tests in batches...`);
+      const BATCH_SIZE = 250;
+      for (let i = 0; i < testsToInsert.length; i += BATCH_SIZE) {
+        const batch = testsToInsert.slice(i, i + BATCH_SIZE);
+        await DiagnosticTest.insertMany(batch, { ordered: false });
+        testsSeeded += batch.length;
+        console.log(`   + Inserted batch: ${testsSeeded}/${testsToInsert.length} diagnostic tests...`);
+      }
+    } else {
+      console.log("   . All diagnostic tests are already present in the database.");
+    }
+    console.log(`✅ Diagnostic Test seeding done (${testsSeeded} new inserted, ${existingTests.length + testsSeeded} total in DB).`);
+
+    // 5. Seed Medical Advice / Pathology Tests
     console.log("\n🔬 Seeding Medical Advice & Pathology Tests...");
     let advicesSeeded = 0;
     for (const adviceData of medicalAdvices) {

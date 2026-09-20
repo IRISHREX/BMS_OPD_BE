@@ -20,6 +20,7 @@ import templateRouter from "./router/templateRouter.js";
 import backupRouter from "./router/backupRouter.js";
 import logRouter from "./router/logRouter.js";
 import testRouter from "./router/testRouter.js";
+import adviceRouter from "./router/adviceRouter.js";
 import setupSwagger from "./utils/swagger.js";
 
 const app = express();
@@ -79,6 +80,7 @@ app.use("/api/v1/template", templateRouter);
 app.use("/api/v1/backup", backupRouter);
 app.use("/api/v1/logs", logRouter);
 app.use("/api/v1/test", testRouter);
+app.use("/api/v1/advice", adviceRouter);
 
 // Debug endpoint to inspect request cookies, headers and authenticated user.
 // This is intentionally only enabled when not in production to avoid exposing internals.

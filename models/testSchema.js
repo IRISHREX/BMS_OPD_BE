@@ -8,4 +8,8 @@ const testSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+testSchema.index({ name: 1 });
+testSchema.index({ type: 1 });
+testSchema.index({ department: 1 });
+
 export const DiagnosticTest = mongoose.model("DiagnosticTest", testSchema);

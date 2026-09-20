@@ -12,4 +12,7 @@ const medicineSchema = new mongoose.Schema({
   notes: { type: String, trim: true },
 });
 
+medicineSchema.index({ name: 1 });
+medicineSchema.index({ composition: 1 });
+
 export const Medicine = mongoose.model("Medicine", medicineSchema);
