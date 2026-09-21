@@ -23,6 +23,7 @@ import {
   updateUserById,
   updateDoctorById,
   searchDoctor,
+  updatePrescriptionTemplate,
 } from "../controller/userController.js";
 import {
   isAdminAuthenticated,
@@ -362,6 +363,7 @@ router.post("/doctor/addnew", isAdminAuthenticated, uploadDoctorImages, addNewDo
 router.get("/doctors", getAllDoctors);
 router.put("/doctor/update/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
 router.put("/doctor/:id", isDashboardAuthenticated, uploadDoctorImages, updateDoctorById);
+router.put("/prescription-template", isDashboardAuthenticated, updatePrescriptionTemplate);
 
 /**
  * @openapi

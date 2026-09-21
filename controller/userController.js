@@ -1,6 +1,8 @@
 
+import mongoose from "mongoose";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { User } from "../models/userSchema.js";
+import { Template } from "../models/templateSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { generateToken } from "../utils/jwtToken.js";
 import { logEvent } from "../utils/logger.js";
@@ -555,9 +557,9 @@ export const getDoctorById = catchAsyncErrors(async (req, res, next) => {
 // Update doctor by ID
 export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const doctor = await User.findOne({ _id: id, role: "Doctor" });
+  const doctor = await User.findOne({ _id: id, role: { $in: ["Doctor", "Admin"] } });
   if (!doctor) {
-    return next(new ErrorHandler("Doctor not found!", 404));
+    return next(new ErrorHandler("Doctor or Admin user not found!", 404));
   }
 
   const {
@@ -685,6 +687,92 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     success: true,
     message: "Doctor updated successfully!",
     doctor,
+  });
+});
+
+// Update prescription template for doctor or admin (saves chosen template in database)
+export const updatePrescriptionTemplate = catchAsyncErrors(async (req, res, next) => {
+  const { templateName, doctorId, applyToAllDoctors } = req.body;
+  if (!templateName) {
+    return next(new ErrorHandler("Template name is required", 400));
+  }
+
+  // Determine target user ID:
+  // If doctorId is provided and requester is Admin, target that user; otherwise target authenticated user
+  let targetUserId = req.user._id;
+  if (req.user.role === "Admin" && doctorId && mongoose.Types.ObjectId.isValid(doctorId)) {
+    targetUserId = doctorId;
+  }
+
+  const user = await User.findById(targetUserId);
+  if (!user) {
+    return next(new ErrorHandler("User not found", 404));
+  }
+
+  user.prescriptionTemplate = templateName;
+  await user.save({ validateBeforeSave: false });
+
+  // If Admin applies setting across all doctors in the hospital, update their records in database too
+  if (req.user.role === "Admin" && applyToAllDoctors) {
+    await User.updateMany(
+      { role: { $in: ["Doctor", "Admin"] } },
+      { prescriptionTemplate: templateName }
+    );
+  }
+
+  // Also sync Template collection
+  try {
+    await Template.updateMany({ doctorId: targetUserId }, { isDefault: false });
+    let tmpl = await Template.findOne({
+      doctorId: targetUserId,
+      $or: [{ name: templateName }, { layoutType: templateName }],
+    });
+    if (tmpl) {
+      tmpl.isDefault = true;
+      await tmpl.save();
+    } else {
+      await Template.create({
+        doctorId: targetUserId,
+        name: templateName,
+        layoutType: templateName,
+        isDefault: true,
+      });
+    }
+
+    if (req.user.role === "Admin" && applyToAllDoctors) {
+      await Template.updateMany({ isDefault: true }, { isDefault: false });
+      let sysTmpl = await Template.findOne({
+        $or: [{ name: templateName }, { layoutType: templateName }],
+      });
+      if (sysTmpl) {
+        sysTmpl.isDefault = true;
+        await sysTmpl.save();
+      }
+    }
+  } catch (syncErr) {
+    console.warn("Template collection sync warning:", syncErr.message);
+  }
+
+  logEvent({
+    level: "INFO",
+    category: "Settings",
+    action: "UPDATE_PRESCRIPTION_TEMPLATE",
+    message: `Prescription template "${templateName}" saved in database for ${user.role} ${user.firstName} ${user.lastName}`,
+    req,
+    metadata: {
+      userId: user._id,
+      userName: `${user.firstName} ${user.lastName}`,
+      role: user.role,
+      templateName,
+      applyToAllDoctors: !!applyToAllDoctors,
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Prescription template "${templateName}" successfully saved in database`,
+    prescriptionTemplate: user.prescriptionTemplate,
+    user,
   });
 });
 

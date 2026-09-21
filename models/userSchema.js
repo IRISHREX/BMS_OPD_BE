@@ -84,7 +84,6 @@ const userSchema = new mongoose.Schema({
   assignedDoctors: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   prescriptionTemplate: {
     type: String,
-    enum: ["default", "Template 1: Right-side margin layout", "Template 2: Left-side margin layout"],
     default: "default",
   },
 });

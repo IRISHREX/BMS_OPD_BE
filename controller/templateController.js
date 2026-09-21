@@ -40,12 +40,23 @@ export const createOrUpdateTemplate = catchAsyncErrors(async (req, res, next) =>
     return res.status(200).json({ success: true, message: "Template updated successfully", template });
   }
 
-  // Otherwise create a new template
+  // Otherwise create or update existing template by name / layoutType
   if (templateData.isDefault) {
     await Template.updateMany({ doctorId }, { isDefault: false });
   }
+
+  let template = await Template.findOne({
+    doctorId,
+    $or: [{ name: templateData.name }, { layoutType: templateData.layoutType }],
+  });
+
+  if (template) {
+    Object.assign(template, templateData);
+    await template.save();
+    return res.status(200).json({ success: true, message: "Template updated successfully", template });
+  }
   
-  const template = await Template.create(templateData);
+  template = await Template.create(templateData);
   res.status(201).json({ success: true, message: "Template created successfully", template });
 });
 
@@ -62,7 +73,11 @@ export const getMyTemplates = catchAsyncErrors(async (req, res, next) => {
     doctorId = req.query.doctorId;
   }
 
-  const templates = await Template.find({ doctorId }).sort({ isDefault: -1, createdAt: -1 });
+  let templates = await Template.find({ doctorId }).sort({ isDefault: -1, createdAt: -1 });
+  if (!templates || templates.length === 0) {
+    // Fallback to system-wide default templates (e.g. configured by Admin)
+    templates = await Template.find({ isDefault: true }).sort({ updatedAt: -1 });
+  }
   res.status(200).json({ success: true, templates });
 });
 
