@@ -349,6 +349,57 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
       res.status(200).json({ success: true, message: 'User deleted successfully' });
     });
 
+// Bulk delete users (Admin only)
+export const bulkDeleteUsers = catchAsyncErrors(async (req, res, next) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return next(new ErrorHandler("Please provide an array of userIds to delete", 400));
+  }
+
+  // Prevent admin from deleting their own logged-in account
+  const currentUserId = req.user?._id ? String(req.user._id) : null;
+  const filteredIds = userIds.filter((id) => String(id) !== currentUserId);
+
+  if (filteredIds.length === 0) {
+    return next(new ErrorHandler("You cannot delete your own active administrator account", 400));
+  }
+
+  // Find users being deleted to clean up related data (e.g. appointments for patients)
+  const usersToDelete = await User.find({ _id: { $in: filteredIds } });
+  const patientIds = usersToDelete.filter((u) => u.role === "Patient").map((u) => u._id);
+
+  if (patientIds.length > 0) {
+    await Appointment.deleteMany({ patientId: { $in: patientIds } });
+  }
+
+  // If doctors are deleted, clean up compounder references
+  const doctorIds = usersToDelete.filter((u) => u.role === "Doctor").map((u) => u._id);
+  if (doctorIds.length > 0) {
+    await User.updateMany({ compounders: { $in: doctorIds } }, { $pull: { compounders: { $in: doctorIds } } });
+  }
+
+  const result = await User.deleteMany({ _id: { $in: filteredIds } });
+
+  logEvent({
+    level: "WARN",
+    category: "User",
+    action: "USER_BULK_DELETE",
+    message: `Bulk deleted ${result.deletedCount} user(s)`,
+    req,
+    metadata: {
+      deletedCount: result.deletedCount,
+      requestedCount: userIds.length,
+      deletedUserIds: filteredIds,
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} user(s)`,
+    deletedCount: result.deletedCount,
+  });
+});
+
 export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
   let {
     firstName,

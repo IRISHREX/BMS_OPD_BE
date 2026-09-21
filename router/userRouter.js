@@ -20,6 +20,7 @@ import {
   getAllUsers,
   updateUserRole,
   deleteUserById,
+  bulkDeleteUsers,
   updateUserById,
   updateDoctorById,
   searchDoctor,
@@ -534,6 +535,7 @@ router.put('/role/:id', isAdminAuthenticated, updateUserRole);
  */
 router.put('/user/:id', isDashboardAuthenticated, uploadDoctorImages, updateUserById);
 router.delete('/user/:id', isAdminAuthenticated, deleteUserById);
+router.post('/bulk-delete', isAdminAuthenticated, bulkDeleteUsers);
 
 /**
  * @openapi
