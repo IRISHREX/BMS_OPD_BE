@@ -40,8 +40,10 @@ const templateSchema = new mongoose.Schema({
       "two-column",
       "Template 1: Right-side margin layout",
       "Template 2: Left-side margin layout",
+      "Template 3: Orthopedic Layout",
       "right-margin",
-      "left-margin"
+      "left-margin",
+      "dynamic-json"
     ],
     default: "default",
   },
