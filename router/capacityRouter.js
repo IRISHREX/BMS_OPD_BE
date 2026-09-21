@@ -1,6 +1,7 @@
 import express from "express";
 import {
   setCapacity,
+  setBulkCapacity,
   getCapacities,
   getDoctorCapacity,
   deleteCapacity,
@@ -9,8 +10,9 @@ import { isDashboardAuthenticated } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-router.post("/set", isDashboardAuthenticated, setCapacity);
 router.get("/", isDashboardAuthenticated, getCapacities);
+router.post("/set", isDashboardAuthenticated, setCapacity);
+router.post("/set-bulk", isDashboardAuthenticated, setBulkCapacity);
 router.get("/doctor/:doctorId", isDashboardAuthenticated, getDoctorCapacity);
 router.delete("/:id", isDashboardAuthenticated, deleteCapacity);
 
