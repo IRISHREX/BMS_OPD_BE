@@ -227,6 +227,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     doctorId,
     hasVisited,
     address,
+    appointmentType,
     result,
     password
     // optional, for new patient creation
@@ -367,6 +368,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     },
     hasVisited: !!hasVisited,
     address,
+    appointmentType: appointmentType || "OPD",
   booked_by: requester ? requester._id : undefined,
   book_by_name: requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : (req.body.user ? `${req.body.user.firstName || ''} ${req.body.user.lastName || ''}`.trim() : ''),
     doctorId: doctorIdFinal,

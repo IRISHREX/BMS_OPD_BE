@@ -44,6 +44,11 @@ const appointmentSchema = new mongoose.Schema({
     // required: [true, "Appointment Date Is Required!"],
     default: new Date().toISOString(),
   },
+  appointmentType: {
+    type: String,
+    enum: ["OPD", "Follow-up", "Emergency"],
+    default: "OPD",
+  },
   followup_date: {
     type: String,
     required: false,
