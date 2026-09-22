@@ -280,6 +280,11 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
       user.signImage = null;
       delete updateData.removeSignImage;
     }
+    if (updateData.removeStampImage === 'true') {
+      deleteImage(user.stampImage);
+      user.stampImage = null;
+      delete updateData.removeStampImage;
+    }
     if (updateData.removeHeaderImage === 'true') {
       deleteImage(user.headerImage);
       user.headerImage = null;
@@ -295,6 +300,10 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
       if (req.files.signImage && req.files.signImage[0]) {
         deleteImage(user.signImage);
         user.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+      }
+      if (req.files.stampImage && req.files.stampImage[0]) {
+        deleteImage(user.stampImage);
+        user.stampImage = `/uploads/doctors/${req.files.stampImage[0].filename}`;
       }
       if (req.files.headerImage && req.files.headerImage[0]) {
         deleteImage(user.headerImage);
@@ -447,6 +456,7 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
 
   let docAvatarUrl = null;
   let signImageUrl = null;
+  let stampImageUrl = null;
   let headerImageUrl = null;
 
   if (req.files) {
@@ -455,6 +465,9 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     }
     if (req.files.signImage && req.files.signImage[0]) {
       signImageUrl = `/uploads/doctors/${req.files.signImage[0].filename}`;
+    }
+    if (req.files.stampImage && req.files.stampImage[0]) {
+      stampImageUrl = `/uploads/doctors/${req.files.stampImage[0].filename}`;
     }
     if (req.files.headerImage && req.files.headerImage[0]) {
       headerImageUrl = `/uploads/doctors/${req.files.headerImage[0].filename}`;
@@ -482,6 +495,7 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     consultationFee: Number(consultationFee || visitingFee || 500),
     docAvatar: docAvatarUrl,
     signImage: signImageUrl,
+    stampImage: stampImageUrl,
     headerImage: headerImageUrl,
     compounders: compoundersList,
   });
@@ -595,7 +609,7 @@ export const updatePatientById = catchAsyncErrors(async (req, res, next) => {
 // Get doctor by ID
 export const getDoctorById = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const doctor = await User.findOne({ _id: id, role: "Doctor" }).populate("compounders", "firstName lastName email phone");
+  const doctor = await User.findOne({ _id: id, role: { $in: ["Doctor", "Admin"] } }).populate("compounders", "firstName lastName email phone");
   if (!doctor) {
     return next(new ErrorHandler("Doctor not found!", 404));
   }
@@ -683,6 +697,10 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     deleteImage(doctor.signImage);
     doctor.signImage = null;
   }
+  if (req.body.removeStampImage === 'true') {
+    deleteImage(doctor.stampImage);
+    doctor.stampImage = null;
+  }
   if (req.body.removeHeaderImage === 'true') {
     deleteImage(doctor.headerImage);
     doctor.headerImage = null;
@@ -697,6 +715,10 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     if (req.files.signImage && req.files.signImage[0]) {
       deleteImage(doctor.signImage);
       doctor.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+    }
+    if (req.files.stampImage && req.files.stampImage[0]) {
+      deleteImage(doctor.stampImage);
+      doctor.stampImage = `/uploads/doctors/${req.files.stampImage[0].filename}`;
     }
     if (req.files.headerImage && req.files.headerImage[0]) {
       deleteImage(doctor.headerImage);

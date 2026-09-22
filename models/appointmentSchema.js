@@ -94,6 +94,12 @@ const appointmentSchema = new mongoose.Schema({
         initialComplain: { type: String },
         presentingComplaints: { type: String },
         medicalHistory: { type: String },
+        pathologyReport: { type: String, default: "" },
+        radiologyReport: { type: String, default: "" },
+        availableReports: {
+          pathology: { type: String, default: "" },
+          radiology: { type: String, default: "" },
+        },
         // clinical_findings: { type: String },
         clinical_findings: {
           patientCondition: {

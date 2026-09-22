@@ -27,16 +27,18 @@ const fileFilter = (req, file, cb) => {
 const uploadDisk = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
 const uploadMemory = multer({ storage: memoryStorage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
 
-// fields: docAvatar (required in UI), signImage (optional), headerImage (optional)
+// fields: docAvatar (required in UI), signImage (optional), stampImage (optional), headerImage (optional)
 export const uploadDoctorImagesDisk = uploadDisk.fields([
   { name: 'docAvatar', maxCount: 1 },
   { name: 'signImage', maxCount: 1 },
+  { name: 'stampImage', maxCount: 1 },
   { name: 'headerImage', maxCount: 1 },
 ]);
 
 export const uploadDoctorImagesMemory = uploadMemory.fields([
   { name: 'docAvatar', maxCount: 1 },
   { name: 'signImage', maxCount: 1 },
+  { name: 'stampImage', maxCount: 1 },
   { name: 'headerImage', maxCount: 1 },
 ]);
 

@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
   // Stored as URLs pointing to the image cache endpoints
   docAvatar: { type: String, default: null },
   signImage: { type: String, default: null },
+  stampImage: { type: String, default: null },
   headerImage: { type: String, default: null },
   age: {
     type: Number,
