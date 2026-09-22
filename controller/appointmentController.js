@@ -576,8 +576,8 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
   if (!appointments || appointments.length === 0) {
     return next(new ErrorHandler("No appointments found for this patient!", 404));
   }
-  // pick latest by appointment_date
-  appointments.sort((a, b) => new Date(b.appointment_date) - new Date(a.appointment_date));
+  // pick latest by updatedAt/createdAt timestamp
+  appointments.sort((a, b) => new Date(b.updatedAt || b.createdAt || b.appointment_date) - new Date(a.updatedAt || a.createdAt || a.appointment_date));
   const latest = appointments[0];
   // Normalize incoming payload: ensure result is an array and medicineAdvice is an array of normalized objects
   const payload = { ...req.body };
@@ -590,9 +590,10 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
       }
       if (!copy.medicineAdvice) copy.medicineAdvice = [];
 
-      // Normalize medicine object keys to: name,type,dose,frequency,route,duration
+      // Normalize medicine object keys to: name,type,dose,frequency,route,duration,notes,instruction
       copy.medicineAdvice = copy.medicineAdvice.map((med) => {
         if (!med || typeof med !== 'object') return med;
+        const notesVal = med.notes || med.Notes || med.instruction || med.instructions || "";
         return {
           name: med.name || med.Medicine || med.MedicineName || "",
           type: med.type || med.Type || "",
@@ -600,6 +601,9 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
           frequency: med.frequency || med.Frequency || med.Interval || "",
           route: med.route || med.Rout || med.Route || med.rout || "",
           duration: med.duration || med.Duration || "",
+          notes: notesVal,
+          instruction: notesVal,
+          instructions: notesVal,
           // keep any extra props if present
           ...med,
         };

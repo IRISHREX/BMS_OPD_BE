@@ -160,6 +160,8 @@ const appointmentSchema = new mongoose.Schema({
               route: { type: String },
               duration: { type: String },
               notes: { type: String },
+              instruction: { type: String },
+              instructions: { type: String },
             },
           ],
           default: [],
