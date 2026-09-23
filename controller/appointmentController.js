@@ -156,12 +156,12 @@ export async function syncReportForAppointment(apptId) {
   // Determine paid/due using invoice payments when available, otherwise fall back to appointment.paymentStatus
   let paid = 0;
   let due = 0;
+  const ps = String(appt.paymentStatus || '').trim();
+  const st = String(appt.status || '').trim();
   if (totalPaidFromInvoices > 0) {
     paid = Number(totalPaidFromInvoices || 0);
     due = Math.max(0, Number(amount || 0) - paid);
   } else {
-    const ps = String(appt.paymentStatus || '').trim();
-    const st = String(appt.status || '').trim();
     if (st === 'Completed') {
       paid = amount;
       due = 0;

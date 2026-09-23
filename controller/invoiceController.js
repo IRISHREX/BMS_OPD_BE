@@ -274,7 +274,45 @@ export const searchInvoices = catchAsyncErrors(async (req, res, next) => {
 export const getInvoicesByAppointment = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params; // appointment id
   if (!id) return next(new ErrorHandler('Appointment id required', 400));
-  const invoices = await Invoice.find({ appointment: id }).populate('patient doctor appointment');
+  let invoices = await Invoice.find({ appointment: id }).populate('patient doctor appointment');
+  if (!invoices || invoices.length === 0) {
+    const appt = await Appointment.findById(id);
+    if (appt) {
+      const consultationFee = Number(appt.price || 100);
+      const invoiceNumber = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`;
+      const normalizedStatus = (appt.paymentStatus === 'Paid' || appt.paymentStatus === 'Accepted' || appt.status === 'Completed') ? 'Paid' : 'Unpaid';
+      const items = [{
+        description: `Consultation (${appt.department || 'General'})`,
+        quantity: 1,
+        unitPrice: consultationFee,
+        total: consultationFee,
+      }];
+      const newInvoice = await Invoice.create({
+        invoiceNumber,
+        appointment: appt._id,
+        patient: appt.patientId || undefined,
+        doctor: appt.doctorId || undefined,
+        items,
+        subtotal: consultationFee,
+        total: consultationFee,
+        status: normalizedStatus,
+        issuedAt: appt.appointment_date || new Date(),
+        payments: normalizedStatus === 'Paid' ? [{ amount: consultationFee, paidAt: appt.appointment_date || new Date(), method: 'Cash' }] : [],
+      });
+      appt.invoices = appt.invoices || [];
+      appt.invoices.push(newInvoice._id);
+      await appt.save();
+
+      try {
+        await syncReportForAppointment(appt._id);
+      } catch (e) {
+        console.warn('Failed to sync report after on-the-fly invoice creation:', e.message);
+      }
+
+      invoices = [await Invoice.findById(newInvoice._id).populate('patient doctor appointment')];
+    }
+  }
+
   if (!invoices || invoices.length === 0) {
     return next(new ErrorHandler('No invoices found for this appointment', 404));
   }
