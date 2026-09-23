@@ -12,8 +12,11 @@ const parseRange = (start, end) => {
   let e = end ? new Date(end) : null;
   if (s && isNaN(s.getTime())) s = null;
   if (e && isNaN(e.getTime())) e = null;
-  // if only start provided, set end to same day end
-  if (s && !e) {
+  if (s) s.setHours(0, 0, 0, 0);
+  if (e) {
+    e.setHours(23, 59, 59, 999);
+  } else if (s) {
+    // if only start provided, set end to same day end
     e = new Date(s);
     e.setHours(23, 59, 59, 999);
   }
@@ -125,7 +128,7 @@ export const listReports = catchAsyncErrors(async (req, res, next) => {
   const { start, end, appointmentId, q, doctorId, status, page = 1, limit = 50 } = req.query;
   const filter = {};
   if (appointmentId) filter.appointmentId = appointmentId;
-  if (doctorId) filter.doctorId = doctorId;
+  if (doctorId && mongoose.isValidObjectId(doctorId)) filter.doctorId = new mongoose.Types.ObjectId(doctorId);
   if (status) {
     if (status === 'Refund') {
       filter.status = 'Refund';
@@ -144,9 +147,23 @@ export const listReports = catchAsyncErrors(async (req, res, next) => {
       filter.status = status;
     }
   }
-  if (start || end) filter.appointmentDate = {};
-  if (start) filter.appointmentDate.$gte = new Date(start);
-  if (end) filter.appointmentDate.$lte = new Date(end);
+  if (start || end) {
+    filter.appointmentDate = {};
+    if (start) {
+      const s = new Date(start);
+      if (!isNaN(s.getTime())) {
+        s.setHours(0, 0, 0, 0);
+        filter.appointmentDate.$gte = s;
+      }
+    }
+    if (end) {
+      const e = new Date(end);
+      if (!isNaN(e.getTime())) {
+        e.setHours(23, 59, 59, 999);
+        filter.appointmentDate.$lte = e;
+      }
+    }
+  }
 
   if (q && q.trim()) {
     const trimmed = q.trim();

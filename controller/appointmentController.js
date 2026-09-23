@@ -198,11 +198,14 @@ export async function syncReportForAppointment(apptId) {
   const existing = await Report.findOne({ appointmentId: appt._id });
   if (existing) {
     existing.amount = payload.amount;
+    existing.paid = payload.paid;
     existing.revenue = payload.revenue;
     existing.due = payload.due;
     existing.status = payload.status;
     existing.appointmentDate = payload.appointmentDate;
     existing.notes = payload.notes;
+    if (payload.doctorId) existing.doctorId = payload.doctorId;
+    if (payload.patientId) existing.patientId = payload.patientId;
     await existing.save();
     return existing;
   }
@@ -392,6 +395,11 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     console.log("Creating invoice with items:", appointment._id, invoiceItems);
     // map legacy 'Accepted' to 'Paid' when creating invoice status
     const normalizedInvoiceStatus = (finalPaymentStatus === 'Paid' || finalPaymentStatus === 'Accepted') ? 'Paid' : 'Unpaid';
+    const invoiceTotal = consultationFee + platformFee;
+    const initialPayments = normalizedInvoiceStatus === 'Paid' ? [
+      { paidAt: new Date(), amount: invoiceTotal, method: 'Cash', reference: 'appointment-booking' }
+    ] : [];
+
     const invoice = await Invoice.create({
       invoiceNumber: genInvoiceNumber,
       appointment: appointment._id,
@@ -402,6 +410,7 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
       discount: 0,
       issuedAt: new Date(),
       status: normalizedInvoiceStatus,
+      payments: initialPayments,
     });
 
     // attach invoice to appointment record
@@ -623,6 +632,12 @@ export const updateAppointmentByPatientId = catchAsyncErrors(async (req, res, ne
     runValidators: true,
     useFindAndModify: false,
   });
+
+  try {
+    await syncReportForAppointment(updated._id);
+  } catch (syncErr) {
+    console.warn('Failed to sync report in updateAppointmentByPatientId:', syncErr.message);
+  }
 
   const hasPrescription = Boolean(
     payload.result ||
