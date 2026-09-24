@@ -209,17 +209,54 @@ export const listReports = catchAsyncErrors(async (req, res, next) => {
       orConditions.push({ doctorId: { $in: matchingDoctors.map((d) => d._id) } });
     }
 
-    // 3. Search appointments by patient name, phone, doctor name
+    // 3. Search appointments by patient name, phone, doctor name, nic
     const matchingAppointments = await Appointment.find({
       $or: [
         { name: regex },
         { phone: regex },
+        { nic: regex },
         { 'doctor.firstName': regex },
         { 'doctor.lastName': regex },
       ],
     }).select('_id').lean();
     if (matchingAppointments.length > 0) {
       orConditions.push({ appointmentId: { $in: matchingAppointments.map((a) => a._id) } });
+    }
+
+    // 3b. Search by appointment ID short-code or hex suffix (e.g. "APT-622C18" or "622C18")
+    const cleanHex = trimmed.replace(/^APT-?/i, '').replace(/^P-?/i, '').replace(/^INV-?/i, '').trim();
+    if (cleanHex.length >= 2 && /^[0-9a-fA-F]+$/.test(cleanHex)) {
+      try {
+        const hexRegex = new RegExp(`${cleanHex}$`, 'i');
+        const hexSubRegex = new RegExp(cleanHex, 'i');
+        const matchingHexAppts = await Appointment.find({
+          $expr: {
+            $regexMatch: {
+              input: { $toString: "$_id" },
+              regex: cleanHex,
+              options: "i",
+            },
+          },
+        }).select('_id').lean();
+        if (matchingHexAppts.length > 0) {
+          orConditions.push({ appointmentId: { $in: matchingHexAppts.map((a) => a._id) } });
+        }
+
+        const matchingHexReports = await Report.find({
+          $expr: {
+            $regexMatch: {
+              input: { $toString: "$_id" },
+              regex: cleanHex,
+              options: "i",
+            },
+          },
+        }).select('_id').lean();
+        if (matchingHexReports.length > 0) {
+          orConditions.push({ _id: { $in: matchingHexReports.map((r) => r._id) } });
+        }
+      } catch (err) {
+        // ignore regex error on invalid hex patterns
+      }
     }
 
     // 4. Search Invoices by invoiceNumber
