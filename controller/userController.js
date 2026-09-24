@@ -932,3 +932,24 @@ export const logoutPatient = catchAsyncErrors(async (req, res, next) => {
       message: "Patient Logged Out Successfully.",
     });
 });
+
+// Change user password by Admin
+export const changeUserPassword = catchAsyncErrors(async (req, res, next) => {
+  const { userId, newPassword } = req.body;
+  if (!userId || !newPassword) {
+    return next(new ErrorHandler("User ID and new password are required", 400));
+  }
+  if (newPassword.length < 8) {
+    return next(new ErrorHandler("Password must be at least 8 characters long", 400));
+  }
+  const user = await User.findById(userId);
+  if (!user) {
+    return next(new ErrorHandler("User not found", 404));
+  }
+  user.password = newPassword;
+  await user.save();
+  return res.status(200).json({
+    success: true,
+    message: `Password updated successfully for ${user.firstName || user.name || "User"}`,
+  });
+});

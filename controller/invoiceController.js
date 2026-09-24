@@ -50,6 +50,10 @@ export const createInvoice = catchAsyncErrors(async (req, res, next) => {
   const subtotal = normalizedItems.reduce((s, i) => s + (Number(i.total) || 0), 0);
   const total = Math.max(0, subtotal + Number(tax || 0) - Number(discount || 0));
 
+  const initialPayments = (status === 'Paid') ? [
+    { paidAt: new Date(), amount: total, method: 'Cash', reference: 'Initial Payment' }
+  ] : [];
+
   const invoice = await Invoice.create({
     invoiceNumber,
     appointment: appointmentId,
@@ -63,6 +67,8 @@ export const createInvoice = catchAsyncErrors(async (req, res, next) => {
     issuedAt: issuedAt || Date.now(),
     dueDate,
     status: status || 'Unpaid',
+    notes: req.body.notes || '',
+    payments: initialPayments,
   });
 
   // link invoice to appointment if provided
@@ -70,6 +76,11 @@ export const createInvoice = catchAsyncErrors(async (req, res, next) => {
     appointment.invoices = appointment.invoices || [];
     appointment.invoices.push(invoice._id);
     await appointment.save();
+    try {
+      await syncReportForAppointment(appointment._id);
+    } catch (e) {
+      console.warn('Failed to sync report on createInvoice:', e.message);
+    }
   }
 
   logEvent({
@@ -100,29 +111,127 @@ export const getInvoice = catchAsyncErrors(async (req, res, next) => {
   return res.status(200).json({ success: true, invoice });
 });
 
-// List invoices with optional filters (patient, doctor, appointment, status, invoiceNumber)
+// List invoices with optional filters (patient, doctor, appointment, status, invoiceNumber, search, dates)
 export const listInvoices = catchAsyncErrors(async (req, res, next) => {
   const { patient, doctor, appointment, status, q, start, end, page = 1, limit = 50 } = req.query;
   const query = {};
-  if (patient) query.patient = patient;
-  if (doctor) query.doctor = doctor;
-  if (appointment) query.appointment = appointment;
-  if (status) query.status = status;
-  if (q) {
-    const regex = new RegExp(q, 'i');
-    query.$or = [{ invoiceNumber: regex }];
+
+  if (appointment && mongoose.isValidObjectId(appointment)) {
+    query.appointment = new mongoose.Types.ObjectId(appointment);
+  }
+
+  if (doctor) {
+    if (mongoose.isValidObjectId(doctor)) {
+      query.doctor = new mongoose.Types.ObjectId(doctor);
+    }
+  }
+
+  if (patient) {
+    if (mongoose.isValidObjectId(patient)) {
+      query.patient = new mongoose.Types.ObjectId(patient);
+    } else {
+      // Find users matching search string as patient
+      const patUsers = await User.find({
+        role: 'Patient',
+        $or: [
+          { firstName: new RegExp(patient, 'i') },
+          { lastName: new RegExp(patient, 'i') },
+          { name: new RegExp(patient, 'i') },
+          { phone: new RegExp(patient, 'i') },
+          { nic: new RegExp(patient, 'i') },
+        ]
+      }).select('_id').lean();
+      query.patient = { $in: patUsers.map(u => u._id) };
+    }
+  }
+
+  if (status && status !== 'all') {
+    query.status = status;
   }
 
   // date range filter on issuedAt
   if (start || end) {
     query.issuedAt = {};
-    if (start) query.issuedAt.$gte = new Date(start);
-    if (end) query.issuedAt.$lte = new Date(end);
+    if (start) {
+      const s = new Date(start);
+      if (!isNaN(s.getTime())) {
+        s.setHours(0, 0, 0, 0);
+        query.issuedAt.$gte = s;
+      }
+    }
+    if (end) {
+      const e = new Date(end);
+      if (!isNaN(e.getTime())) {
+        e.setHours(23, 59, 59, 999);
+        query.issuedAt.$lte = e;
+      }
+    }
+  }
+
+  if (q && q.trim()) {
+    const trimmed = q.trim();
+    const regex = new RegExp(trimmed, 'i');
+    const orList = [
+      { invoiceNumber: regex },
+      { notes: regex },
+    ];
+
+    if (mongoose.isValidObjectId(trimmed)) {
+      const objId = new mongoose.Types.ObjectId(trimmed);
+      orList.push({ _id: objId }, { appointment: objId }, { patient: objId }, { doctor: objId });
+    }
+
+    // Match patient names/phone
+    const matchedPatients = await User.find({
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { name: regex },
+        { phone: regex },
+        { nic: regex },
+      ]
+    }).select('_id').lean();
+    if (matchedPatients.length > 0) {
+      orList.push({ patient: { $in: matchedPatients.map(p => p._id) } });
+    }
+
+    // Match doctor names
+    const matchedDoctors = await User.find({
+      role: 'Doctor',
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { name: regex },
+      ]
+    }).select('_id').lean();
+    if (matchedDoctors.length > 0) {
+      orList.push({ doctor: { $in: matchedDoctors.map(d => d._id) } });
+    }
+
+    // Match appointment patient names
+    const matchedAppts = await Appointment.find({
+      $or: [
+        { name: regex },
+        { phone: regex },
+        { nic: regex },
+      ]
+    }).select('_id').lean();
+    if (matchedAppts.length > 0) {
+      orList.push({ appointment: { $in: matchedAppts.map(a => a._id) } });
+    }
+
+    query.$or = orList;
   }
 
   const skip = (Number(page) - 1) * Number(limit);
-  const invoices = await Invoice.find(query).populate('patient doctor appointment').skip(skip).limit(Number(limit)).sort({ issuedAt: -1 });
-  return res.status(200).json({ success: true, invoices });
+  const total = await Invoice.countDocuments(query);
+  const invoices = await Invoice.find(query)
+    .populate('patient doctor appointment')
+    .skip(skip)
+    .limit(Number(limit))
+    .sort({ issuedAt: -1 });
+
+  return res.status(200).json({ success: true, total, page: Number(page), limit: Number(limit), invoices });
 });
 
 // Update invoice (partial updates allowed)
@@ -274,7 +383,45 @@ export const searchInvoices = catchAsyncErrors(async (req, res, next) => {
 export const getInvoicesByAppointment = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params; // appointment id
   if (!id) return next(new ErrorHandler('Appointment id required', 400));
-  const invoices = await Invoice.find({ appointment: id }).populate('patient doctor appointment');
+  let invoices = await Invoice.find({ appointment: id }).populate('patient doctor appointment');
+  if (!invoices || invoices.length === 0) {
+    const appt = await Appointment.findById(id);
+    if (appt) {
+      const consultationFee = Number(appt.price || 100);
+      const invoiceNumber = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`;
+      const normalizedStatus = (appt.paymentStatus === 'Paid' || appt.paymentStatus === 'Accepted' || appt.status === 'Completed') ? 'Paid' : 'Unpaid';
+      const items = [{
+        description: `Consultation (${appt.department || 'General'})`,
+        quantity: 1,
+        unitPrice: consultationFee,
+        total: consultationFee,
+      }];
+      const newInvoice = await Invoice.create({
+        invoiceNumber,
+        appointment: appt._id,
+        patient: appt.patientId || undefined,
+        doctor: appt.doctorId || undefined,
+        items,
+        subtotal: consultationFee,
+        total: consultationFee,
+        status: normalizedStatus,
+        issuedAt: appt.appointment_date || new Date(),
+        payments: normalizedStatus === 'Paid' ? [{ amount: consultationFee, paidAt: appt.appointment_date || new Date(), method: 'Cash' }] : [],
+      });
+      appt.invoices = appt.invoices || [];
+      appt.invoices.push(newInvoice._id);
+      await appt.save();
+
+      try {
+        await syncReportForAppointment(appt._id);
+      } catch (e) {
+        console.warn('Failed to sync report after on-the-fly invoice creation:', e.message);
+      }
+
+      invoices = [await Invoice.findById(newInvoice._id).populate('patient doctor appointment')];
+    }
+  }
+
   if (!invoices || invoices.length === 0) {
     return next(new ErrorHandler('No invoices found for this appointment', 404));
   }
