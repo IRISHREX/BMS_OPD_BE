@@ -4,6 +4,11 @@ import { Prescription } from "../models/prescriptionSchema.js";
 import { User } from "../models/userSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { syncReportForAppointment } from "./appointmentController.js";
+import {
+  uploadPrescriptionPdfToS3,
+  deleteS3Object,
+  getPresignedDownloadUrl,
+} from "../utils/s3Storage.js";
 
 // Create or update prescription for the same day
 export const savePrescription = catchAsyncErrors(async (req, res, next) => {
@@ -257,4 +262,106 @@ export const searchPrescriptions = catchAsyncErrors(async (req, res, next) => {
     success: true,
     prescriptions,
   });
+});
+
+// ─── Prescription PDF Management ──────────────────────────────────────────────
+
+/**
+ * POST /api/v1/prescription/pdf/:prescriptionId
+ * Body: raw PDF buffer (Content-Type: application/pdf)
+ *
+ * Rules:
+ *   • Same calendar-day → overwrite the existing pdfFiles entry (same S3 key)
+ *   • Different day      → push a new entry
+ *   • > 3 entries        → delete the oldest from S3 + remove from DB
+ */
+export const savePrescriptionPdf = catchAsyncErrors(async (req, res, next) => {
+  const { prescriptionId } = req.params;
+
+  const prescription = await Prescription.findById(prescriptionId);
+  if (!prescription) {
+    return next(new ErrorHandler("Prescription not found", 404));
+  }
+
+  // PDF blob is the raw request body (express.raw middleware must be configured on this route)
+  const pdfBuffer = req.body;
+  if (!pdfBuffer || pdfBuffer.length === 0) {
+    return next(new ErrorHandler("PDF data is required", 400));
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const patientId = prescription.patientId.toString();
+
+  // Check if there is already an entry for today
+  const todayIdx = prescription.pdfFiles.findIndex((f) => f.date === todayStr);
+
+  let s3Key;
+  if (todayIdx !== -1) {
+    // Same day – reuse the same S3 key so it overwrites
+    s3Key = prescription.pdfFiles[todayIdx].s3Key;
+    await uploadPrescriptionPdfToS3(patientId, prescriptionId, todayStr, pdfBuffer);
+    prescription.pdfFiles[todayIdx].savedAt = new Date();
+    prescription.pdfFiles[todayIdx].s3Key = s3Key;
+  } else {
+    // New day – upload and push entry
+    s3Key = await uploadPrescriptionPdfToS3(patientId, prescriptionId, todayStr, pdfBuffer);
+    prescription.pdfFiles.push({ date: todayStr, s3Key, s3Url: "", savedAt: new Date() });
+
+    // Sort oldest-first so we can trim from the front
+    prescription.pdfFiles.sort((a, b) => (a.date < b.date ? -1 : 1));
+
+    // Enforce 3-file cap – delete the oldest
+    while (prescription.pdfFiles.length > 3) {
+      const oldest = prescription.pdfFiles.shift();
+      if (oldest.s3Key) {
+        await deleteS3Object(oldest.s3Key).catch(() => {});
+      }
+    }
+  }
+
+  await prescription.save();
+
+  // Return a fresh presigned URL for the saved file
+  const presignedUrl = await getPresignedDownloadUrl(s3Key);
+
+  res.status(200).json({
+    success: true,
+    message: "Prescription PDF saved successfully",
+    date: todayStr,
+    presignedUrl,
+    pdfFiles: prescription.pdfFiles.map((f) => ({ date: f.date, savedAt: f.savedAt })),
+  });
+});
+
+/**
+ * GET /api/v1/prescription/pdf-list/:patientId
+ * Returns all saved PDF dates for a patient with fresh presigned download URLs.
+ */
+export const listPrescriptionPdfs = catchAsyncErrors(async (req, res, next) => {
+  const { patientId } = req.params;
+
+  // Find all prescriptions for this patient that have at least one pdfFile
+  const prescriptions = await Prescription.find({ patientId, "pdfFiles.0": { $exists: true } })
+    .sort({ createdAt: -1 });
+
+  const files = [];
+  for (const presc of prescriptions) {
+    for (const f of presc.pdfFiles) {
+      if (!f.s3Key) continue;
+      const url = await getPresignedDownloadUrl(f.s3Key);
+      if (url) {
+        files.push({
+          prescriptionId: presc._id,
+          date: f.date,
+          savedAt: f.savedAt,
+          presignedUrl: url,
+        });
+      }
+    }
+  }
+
+  // Sort newest-first
+  files.sort((a, b) => (a.date > b.date ? -1 : 1));
+
+  res.status(200).json({ success: true, files });
 });

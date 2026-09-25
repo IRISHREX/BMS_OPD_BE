@@ -63,6 +63,17 @@ const prescriptionSchema = new mongoose.Schema({
   },
   additionalAdvice: { type: String, default: "" },
   followUp: { type: String, default: "" },
+  pdfFiles: {
+    type: [
+      {
+        date: { type: String },          // YYYY-MM-DD
+        s3Key: { type: String },          // full S3 key
+        s3Url: { type: String },          // signed / public URL
+        savedAt: { type: Date },
+      }
+    ],
+    default: [],
+  },
 }, { timestamps: true });
 
 export const Prescription = mongoose.model("Prescription", prescriptionSchema);

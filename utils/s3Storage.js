@@ -1,4 +1,5 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand as GetObjectCommandForUrl } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import fs from "fs";
 import path from "path";
 
@@ -99,4 +100,41 @@ export const syncUploadsToS3 = async (uploadsDir) => {
     }
   }
   return { uploaded: count };
+};
+
+/**
+ * Upload a prescription PDF buffer to S3
+ * Key pattern: prescriptions/{patientId}/{date}_{prescriptionId}.pdf
+ */
+export const uploadPrescriptionPdfToS3 = async (patientId, prescriptionId, dateStr, pdfBuffer) => {
+  const key = `prescriptions/${patientId}/${dateStr}_${prescriptionId}.pdf`;
+  await uploadToS3(key, pdfBuffer, "application/pdf");
+  return key;
+};
+
+/**
+ * Delete a single S3 object by key
+ */
+export const deleteS3Object = async (key) => {
+  try {
+    const command = new DeleteObjectCommand({ Bucket: s3Bucket, Key: key });
+    await s3Client.send(command);
+    return true;
+  } catch (err) {
+    console.warn("S3 delete failed for key:", key, err.message);
+    return false;
+  }
+};
+
+/**
+ * Generate a pre-signed download URL for an S3 object (valid 3600s = 1h)
+ */
+export const getPresignedDownloadUrl = async (key, expiresIn = 3600) => {
+  try {
+    const command = new GetObjectCommand({ Bucket: s3Bucket, Key: key });
+    return await getSignedUrl(s3Client, command, { expiresIn });
+  } catch (err) {
+    console.warn("Presign failed for key:", key, err.message);
+    return null;
+  }
 };
