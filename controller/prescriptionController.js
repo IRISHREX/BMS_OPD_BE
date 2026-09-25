@@ -138,6 +138,19 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
     });
   }
 
+  // Enforce max 3 prescriptions per patient: prune older records beyond latest 3
+  try {
+    const allPatientPrescriptions = await Prescription.find({ patientId }).sort({ createdAt: -1 });
+    if (allPatientPrescriptions.length > 3) {
+      const toDelete = allPatientPrescriptions.slice(3);
+      for (const oldPres of toDelete) {
+        await Prescription.findByIdAndDelete(oldPres._id);
+      }
+    }
+  } catch (pruneErr) {
+    console.warn("Could not prune old prescriptions:", pruneErr.message);
+  }
+
   // Also sync the associated Appointment status to 'Completed' and update its result
   try {
     let targetApptId = appointmentId;
@@ -203,9 +216,13 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
 export const getLatestPrescriptions = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params; // patientId
 
-  // Fetch up to 3 latest prescriptions for the patient
+  // Fetch up to 3 latest prescriptions for the patient with full doctor & patient details
   const prescriptions = await Prescription.find({ patientId: id })
-    .populate("doctorId", "firstName lastName email phone")
+    .populate(
+      "doctorId",
+      "firstName lastName email phone doctorDepartment qualifications headerImage footerImage signImage stampImage prescriptionTemplate"
+    )
+    .populate("patientId", "firstName lastName gender dob age phone address nic")
     .sort({ createdAt: -1 })
     .limit(3);
 

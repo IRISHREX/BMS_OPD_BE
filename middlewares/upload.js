@@ -44,4 +44,9 @@ export const uploadDoctorImagesMemory = uploadMemory.fields([
   { name: 'footerImage', maxCount: 1 },
 ]);
 
+export const uploadClinicImagesDisk = uploadDisk.fields([
+  { name: 'defaultHeaderImage', maxCount: 1 },
+  { name: 'defaultFooterImage', maxCount: 1 },
+]);
+
 export default uploadDisk;
