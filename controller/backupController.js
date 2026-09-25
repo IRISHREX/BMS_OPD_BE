@@ -4,7 +4,9 @@ import ErrorHandler from "../middlewares/error.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
 import { BackupSettings } from "../models/backupSettingsSchema.js";
+import { Medicine } from "../models/medicineSchema.js";
 import { logEvent } from "../utils/logger.js";
+import { uploadCsvBackupToS3, listS3Backups } from "../utils/s3Storage.js";
 
 // Helper to get or create settings
 const getOrCreateSettings = async () => {
@@ -337,3 +339,113 @@ export const updateBackupSettings = catchAsyncErrors(async (req, res, next) => {
     settings,
   });
 });
+
+// Helper to convert array of objects into RFC4180 compliant CSV string
+const toCsvString = (records) => {
+  if (!records || records.length === 0) return "";
+  const headers = Object.keys(records[0]);
+  const rows = records.map((row) =>
+    headers
+      .map((header) => {
+        let val = row[header] === null || row[header] === undefined ? "" : String(row[header]);
+        if (val.includes(",") || val.includes('"') || val.includes("\n") || val.includes("\r")) {
+          val = `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      })
+      .join(",")
+  );
+  return [headers.join(","), ...rows].join("\r\n");
+};
+
+// 5. Trigger automated backup of all clinical data to aiccloud S3 Bucket
+export const backupToS3 = catchAsyncErrors(async (req, res, next) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const uploadedFiles = [];
+
+  // A. Export Appointments
+  const appointments = await Appointment.find().sort({ createdAt: -1 });
+  const appointmentRecords = appointments.map((apt, index) => ({
+    SL: index + 1,
+    AppointmentID: apt.appointmentId || apt._id.toString(),
+    PatientName: apt.name || "-",
+    Phone: apt.phone || "-",
+    Date: apt.appointment_date ? apt.appointment_date.slice(0, 10) : "-",
+    Department: apt.department || "-",
+    Status: apt.status || "-",
+    InitialComplain: apt.initialComplain || "-",
+    CreatedAt: apt.createdAt ? apt.createdAt.toISOString() : "-",
+  }));
+  const appointmentsCsv = toCsvString(appointmentRecords);
+  const aptKey = `${timestamp}_appointments.csv`;
+  await uploadCsvBackupToS3(aptKey, appointmentsCsv);
+  uploadedFiles.push({ file: aptKey, count: appointmentRecords.length, type: "Appointments" });
+
+  // B. Export Patients
+  const patientUsers = await User.find({ role: "Patient" });
+  const patientRecords = patientUsers.map((p, index) => ({
+    SL: index + 1,
+    PatientID: p._id.toString(),
+    Name: p.name || `${p.firstName || ""} ${p.lastName || ""}`.trim() || "-",
+    Phone: p.phone || "-",
+    Email: p.email || "-",
+    Age: p.age || "-",
+    Gender: p.gender || "-",
+    Address: p.address || "-",
+    CreatedAt: p.createdAt ? p.createdAt.toISOString() : "-",
+  }));
+  const patientsCsv = toCsvString(patientRecords);
+  const ptKey = `${timestamp}_patients.csv`;
+  await uploadCsvBackupToS3(ptKey, patientsCsv);
+  uploadedFiles.push({ file: ptKey, count: patientRecords.length, type: "Patients" });
+
+  // C. Export Medicines Master
+  const medicines = await Medicine.find().lean();
+  const medicineRecords = medicines.map((m, index) => ({
+    SL: index + 1,
+    Name: m.name || "-",
+    Type: m.type || "-",
+    Composition: Array.isArray(m.composition) ? m.composition.join("; ") : m.composition || "-",
+    Dose: m.dose || "-",
+    Frequency: m.frequency || "-",
+    Route: m.route || "-",
+    Duration: m.duration || "-",
+    Notes: m.notes || "-",
+  }));
+  const medicinesCsv = toCsvString(medicineRecords);
+  const medKey = `${timestamp}_medicines.csv`;
+  await uploadCsvBackupToS3(medKey, medicinesCsv);
+  uploadedFiles.push({ file: medKey, count: medicineRecords.length, type: "Medicines" });
+
+  // Update last backup date
+  await BackupSettings.updateOne({}, { lastBackupDate: new Date() }, { upsert: true });
+
+  // Audit log
+  logEvent({
+    level: "SUCCESS",
+    category: "Backup",
+    action: "S3_BACKUP_TRIGGERED",
+    message: `Uploaded 3 CSV backups to S3 (${timestamp}): Appointments, Patients, Medicines.`,
+    req,
+    metadata: { uploadedFiles },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Backup to S3 completed successfully!",
+    bucket: "aic-585105c0",
+    endpoint: "https://s3.aiccloud.online",
+    uploadedFiles,
+  });
+});
+
+// 6. List backups stored in S3
+export const getS3Backups = catchAsyncErrors(async (req, res, next) => {
+  const backups = await listS3Backups();
+  res.status(200).json({
+    success: true,
+    count: backups.length,
+    backups,
+  });
+});
+
