@@ -4,6 +4,8 @@ import { config } from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from 'path';
+import fs from 'fs';
+import { getS3Object } from "./utils/s3Storage.js";
 import { errorMiddleware } from "./middlewares/error.js";
 import messageRouter from "./router/messageRouter.js";
 import userRouter from "./router/userRouter.js";
@@ -59,6 +61,35 @@ app.use((req, res, next) => {
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Smart endpoint for /uploads/doctors/:filename:
+// 1. Checks local disk
+// 2. If missing locally, fetches from S3 bucket (aic-585105c0) and caches locally
+app.get('/uploads/doctors/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const localDir = path.join(process.cwd(), 'uploads', 'doctors');
+  const localPath = path.join(localDir, filename);
+
+  if (fs.existsSync(localPath)) {
+    return res.sendFile(localPath);
+  }
+
+  try {
+    const s3Data = await getS3Object(`doctors/${filename}`);
+    if (s3Data && s3Data.Body) {
+      res.setHeader('Content-Type', s3Data.ContentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      fs.mkdirSync(localDir, { recursive: true });
+      const writeStream = fs.createWriteStream(localPath);
+      s3Data.Body.pipe(writeStream);
+      return s3Data.Body.pipe(res);
+    }
+  } catch (err) {
+    console.error(`S3 retrieval error for ${filename}:`, err.message);
+  }
+
+  return res.status(404).send('Image not found');
+});
 
 // Serve uploaded files statically so frontend can fetch them via /uploads/...
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));

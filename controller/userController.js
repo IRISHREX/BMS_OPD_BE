@@ -8,6 +8,7 @@ import { generateToken } from "../utils/jwtToken.js";
 import { logEvent } from "../utils/logger.js";
 import fs from "fs";
 import path from "path";
+import { uploadDoctorAssetToS3 } from "../utils/s3Storage.js";
 
 export const patientRegister = catchAsyncErrors(async (req, res, next) => {
   const { firstName, lastName, email, phone, nic, dob, gender, password } =
@@ -290,24 +291,43 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
       user.headerImage = null;
       delete updateData.removeHeaderImage;
     }
+    if (updateData.removeFooterImage === 'true') {
+      deleteImage(user.footerImage);
+      user.footerImage = null;
+      delete updateData.removeFooterImage;
+    }
   
-    // If new files are uploaded, update paths and delete old files
+    // If new files are uploaded, update paths and upload to S3
     if (req.files) {
       if (req.files.docAvatar && req.files.docAvatar[0]) {
         deleteImage(user.docAvatar);
-        user.docAvatar = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+        const f = req.files.docAvatar[0];
+        user.docAvatar = `/uploads/doctors/${f.filename}`;
+        uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
       }
       if (req.files.signImage && req.files.signImage[0]) {
         deleteImage(user.signImage);
-        user.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+        const f = req.files.signImage[0];
+        user.signImage = `/uploads/doctors/${f.filename}`;
+        uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
       }
       if (req.files.stampImage && req.files.stampImage[0]) {
         deleteImage(user.stampImage);
-        user.stampImage = `/uploads/doctors/${req.files.stampImage[0].filename}`;
+        const f = req.files.stampImage[0];
+        user.stampImage = `/uploads/doctors/${f.filename}`;
+        uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
       }
       if (req.files.headerImage && req.files.headerImage[0]) {
         deleteImage(user.headerImage);
-        user.headerImage = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+        const f = req.files.headerImage[0];
+        user.headerImage = `/uploads/doctors/${f.filename}`;
+        uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
+      }
+      if (req.files.footerImage && req.files.footerImage[0]) {
+        deleteImage(user.footerImage);
+        const f = req.files.footerImage[0];
+        user.footerImage = `/uploads/doctors/${f.filename}`;
+        uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
       }
     }
   
@@ -458,19 +478,33 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
   let signImageUrl = null;
   let stampImageUrl = null;
   let headerImageUrl = null;
+  let footerImageUrl = null;
 
   if (req.files) {
     if (req.files.docAvatar && req.files.docAvatar[0]) {
-      docAvatarUrl = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+      const f = req.files.docAvatar[0];
+      docAvatarUrl = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.signImage && req.files.signImage[0]) {
-      signImageUrl = `/uploads/doctors/${req.files.signImage[0].filename}`;
+      const f = req.files.signImage[0];
+      signImageUrl = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.stampImage && req.files.stampImage[0]) {
-      stampImageUrl = `/uploads/doctors/${req.files.stampImage[0].filename}`;
+      const f = req.files.stampImage[0];
+      stampImageUrl = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.headerImage && req.files.headerImage[0]) {
-      headerImageUrl = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+      const f = req.files.headerImage[0];
+      headerImageUrl = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
+    }
+    if (req.files.footerImage && req.files.footerImage[0]) {
+      const f = req.files.footerImage[0];
+      footerImageUrl = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
   }
 
@@ -497,6 +531,7 @@ export const addNewDoctor = catchAsyncErrors(async (req, res, next) => {
     signImage: signImageUrl,
     stampImage: stampImageUrl,
     headerImage: headerImageUrl,
+    footerImage: footerImageUrl,
     compounders: compoundersList,
   });
 
@@ -705,24 +740,42 @@ export const updateDoctorById = catchAsyncErrors(async (req, res, next) => {
     deleteImage(doctor.headerImage);
     doctor.headerImage = null;
   }
+  if (req.body.removeFooterImage === 'true') {
+    deleteImage(doctor.footerImage);
+    doctor.footerImage = null;
+  }
 
-  // Handle newly uploaded image files
+  // Handle newly uploaded image files and upload to S3
   if (req.files) {
     if (req.files.docAvatar && req.files.docAvatar[0]) {
       deleteImage(doctor.docAvatar?.url || doctor.docAvatar);
-      doctor.docAvatar = `/uploads/doctors/${req.files.docAvatar[0].filename}`;
+      const f = req.files.docAvatar[0];
+      doctor.docAvatar = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.signImage && req.files.signImage[0]) {
       deleteImage(doctor.signImage);
-      doctor.signImage = `/uploads/doctors/${req.files.signImage[0].filename}`;
+      const f = req.files.signImage[0];
+      doctor.signImage = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.stampImage && req.files.stampImage[0]) {
       deleteImage(doctor.stampImage);
-      doctor.stampImage = `/uploads/doctors/${req.files.stampImage[0].filename}`;
+      const f = req.files.stampImage[0];
+      doctor.stampImage = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
     if (req.files.headerImage && req.files.headerImage[0]) {
       deleteImage(doctor.headerImage);
-      doctor.headerImage = `/uploads/doctors/${req.files.headerImage[0].filename}`;
+      const f = req.files.headerImage[0];
+      doctor.headerImage = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
+    }
+    if (req.files.footerImage && req.files.footerImage[0]) {
+      deleteImage(doctor.footerImage);
+      const f = req.files.footerImage[0];
+      doctor.footerImage = `/uploads/doctors/${f.filename}`;
+      uploadDoctorAssetToS3(f.filename, fs.readFileSync(f.path), f.mimetype).catch(console.error);
     }
   }
 

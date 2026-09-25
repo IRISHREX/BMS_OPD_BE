@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema({
   signImage: { type: String, default: null },
   stampImage: { type: String, default: null },
   headerImage: { type: String, default: null },
+  footerImage: { type: String, default: null },
   age: {
     type: Number,
     min: 0,
