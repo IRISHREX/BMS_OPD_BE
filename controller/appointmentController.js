@@ -68,6 +68,13 @@ function harmonizeStatusPayment({ incomingPayload = {}, existingAppointment = {}
     const existingStatus = rawExistingStatus === 'Rejected' ? 'Canceled' : rawExistingStatus;
     const existingPayment = existing.paymentStatus || 'Pending';
 
+    // If existingStatus is 'Completed' and existingPayment is 'Pending', allow transitioning paymentStatus to 'Paid'
+    if (existingStatus === 'Completed' && existingPayment === 'Pending' && payload.paymentStatus === 'Paid') {
+      payload.status = 'Completed';
+      payload.paymentStatus = 'Paid';
+      return payload;
+    }
+
     // Terminal states: Completed, Canceled/Cancelled, or Refund
     const isTerminalStatus = ['Completed', 'Canceled', 'Cancelled'].includes(existingStatus);
     const isTerminalPayment = existingPayment === 'Refund';
