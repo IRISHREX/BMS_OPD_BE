@@ -690,7 +690,18 @@ export const updateAppointmentStatus = catchAsyncErrors(
       const newStatus = appointment?.status;
       if (prevStatus !== newStatus) {
         const text = `Your appointment scheduled on ${appointment.appointment_date} is now ${newStatus}.`;
-        await Message.create({ firstName: appointment.firstName, lastName: appointment.lastName, email: appointment.email, phone: appointment.phone, message: text, sentAt: new Date() });
+        // Appointment records use `name` (not firstName/lastName), and some do not
+        // have contact details. Store status messages as a system notification so
+        // validation cannot prevent the appointment update from completing.
+        await Message.create({
+          firstName: "System",
+          lastName: "Notification",
+          email: "notifications@biomechasoft.in",
+          phone: "0000000000",
+          message: text,
+          recipient: appointment.patientId || undefined,
+          sentAt: new Date(),
+        });
 
         // Check if there is a linked referral for this appointment
         try {
