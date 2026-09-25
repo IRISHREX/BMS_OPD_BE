@@ -222,6 +222,13 @@ export const addNewCompounder = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({ success: true, message: 'New Compounder Registered', compounder });
 });
 
+// Admin/Dashboard: list all patients and count
+export const getAllPatients = catchAsyncErrors(async (req, res, next) => {
+  const count = await User.countDocuments({ role: "Patient" });
+  const patients = await User.find({ role: "Patient" }, { password: 0 }).sort({ createdAt: -1 });
+  res.status(200).json({ success: true, count, patients });
+});
+
 // Admin-only: list all users with roles (for Role Settings UI)
 export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
   const users = await User.find({}, { password: 0 }).sort({ role: 1, firstName: 1 });

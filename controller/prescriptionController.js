@@ -36,6 +36,7 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
     advice,
     additionalAdvice,
     followUp,
+    prescriptionTemplate,
   } = req.body;
 
   if (!patientId) {
@@ -113,6 +114,7 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
     prescription.advice = advice || {};
     prescription.additionalAdvice = additionalAdvice || "";
     prescription.followUp = followUp || "";
+    if (prescriptionTemplate) prescription.prescriptionTemplate = prescriptionTemplate;
     if (appointmentId) prescription.appointmentId = appointmentId;
 
     await prescription.save();
@@ -135,6 +137,7 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
       advice: advice || {},
       additionalAdvice: additionalAdvice || "",
       followUp: followUp || "",
+      prescriptionTemplate: prescriptionTemplate || "",
     });
   }
 
@@ -214,15 +217,18 @@ export const savePrescription = catchAsyncErrors(async (req, res, next) => {
 });
 
 export const getLatestPrescriptions = catchAsyncErrors(async (req, res, next) => {
-  const { id } = req.params; // patientId
+  const { id } = req.params; // patientId or appointmentId
 
-  // Fetch up to 3 latest prescriptions for the patient with full doctor & patient details
-  const prescriptions = await Prescription.find({ patientId: id })
+  // Fetch up to 3 latest prescriptions with full doctor, patient & appointment details (including name and address)
+  const prescriptions = await Prescription.find({
+    $or: [{ patientId: id }, { appointmentId: id }]
+  })
     .populate(
       "doctorId",
       "firstName lastName email phone doctorDepartment qualifications headerImage footerImage signImage stampImage prescriptionTemplate"
     )
-    .populate("patientId", "firstName lastName gender dob age phone address nic")
+    .populate("patientId", "name firstName lastName gender dob age phone address nic")
+    .populate("appointmentId", "name phone address age gender nic appointment_date appointmentType")
     .sort({ createdAt: -1 })
     .limit(3);
 

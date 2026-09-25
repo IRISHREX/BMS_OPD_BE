@@ -18,6 +18,7 @@ import {
   getDoctorMe,
   getDashboardMe,
   getAllUsers,
+  getAllPatients,
   updateUserRole,
   deleteUserById,
   bulkDeleteUsers,
@@ -442,6 +443,7 @@ router.get('/dashboard/me',isDashboardAuthenticated, getDashboardMe);
 // Role management (Admin only)
 
 router.get('/all', isAdminAuthenticated, getAllUsers);
+router.get('/patients', isDashboardAuthenticated, getAllPatients);
 
 /**
  * @openapi

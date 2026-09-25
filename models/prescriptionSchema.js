@@ -63,6 +63,7 @@ const prescriptionSchema = new mongoose.Schema({
   },
   additionalAdvice: { type: String, default: "" },
   followUp: { type: String, default: "" },
+  prescriptionTemplate: { type: String, default: "" },
   pdfFiles: {
     type: [
       {

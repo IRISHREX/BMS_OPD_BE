@@ -1,12 +1,49 @@
+import fs from "fs";
+import path from "path";
+import QRCode from "qrcode";
 import mongoose from "mongoose";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { Report } from "../models/reportSchema.js";
+import { GeneralSettings } from "../models/generalSettingsSchema.js";
 import { syncReportForAppointment } from "./appointmentController.js";
 import { User } from "../models/userSchema.js";
 import { logEvent } from "../utils/logger.js";
+
+function resolveReceiptImageSrc(imgUri, baseUrl) {
+  if (!imgUri) return "";
+  if (imgUri.startsWith("data:")) return imgUri;
+  if (imgUri.startsWith("http://") || imgUri.startsWith("https://")) return imgUri;
+
+  try {
+    const cleanRel = imgUri.replace(/^\/+/, "");
+    const possiblePaths = [
+      path.resolve(process.cwd(), "..", "BMS-opd-fe", "public", cleanRel),
+      path.resolve(process.cwd(), "..", "BMS-opd-fe", "dist", cleanRel),
+      path.resolve("/root/BMS-opd-fe", cleanRel),
+      path.resolve(process.cwd(), cleanRel),
+      path.resolve(process.cwd(), "uploads", cleanRel.replace(/^uploads\//, "")),
+      path.resolve("/root/BMS-opd-be", cleanRel),
+      path.resolve("/root/BMS-opd-be", "uploads", cleanRel.replace(/^uploads\//, "")),
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+        const ext = path.extname(p).toLowerCase().replace(".", "");
+        const mime =
+          ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+        const buf = fs.readFileSync(p);
+        return `data:${mime};base64,${buf.toString("base64")}`;
+      }
+    }
+  } catch (err) {
+    // Ignore and fallback
+  }
+
+  const base = baseUrl || "https://biomechasoft.in";
+  return `${base.replace(/\/+$/, "")}/${imgUri.replace(/^\/+/, "")}`;
+}
 
 // Create invoice and attach to appointment
 export const createInvoice = catchAsyncErrors(async (req, res, next) => {
@@ -730,100 +767,442 @@ export const downloadInvoice = catchAsyncErrors(async (req, res, next) => {
     hour12: true
   });
 
+  // 1. Fetch General Settings
+  const generalSettings = (await GeneralSettings.findOne().lean()) || {
+    orgName: "BioMechaSoft OPD",
+    regNo: "",
+    address: "Vill - Tarbagan, Po - Dhuliyan, Dist - Murshidabad, Pin - 742202, State - WB",
+    ownerName: "",
+    platformFee: 50,
+    googleLocationUrl: "",
+    defaultHeaderImage: "/Header.jpeg",
+    defaultFooterImage: "/Footer.png",
+  };
+
+  // 2. Doctor-wise Day-wise serial / token calculation
+  let dailySerialNo = 1;
+  const apptId = appointment._id || invoice.appointment;
+  const apptDocId = appointment.doctorId || (docObj._id);
+  const apptRawDate = appointment.appointment_date || invoice.issuedAt || invoice.createdAt || new Date();
+  const dateObj = new Date(apptRawDate);
+  const dayStr = isNaN(dateObj.getTime()) ? new Date().toISOString().slice(0, 10) : dateObj.toISOString().slice(0, 10);
+
+  if (apptDocId) {
+    const startOfDay = new Date(dayStr + 'T00:00:00.000Z');
+    const endOfDay = new Date(dayStr + 'T23:59:59.999Z');
+
+    const dayDoctorAppts = await Appointment.find({
+      doctorId: apptDocId,
+      $or: [
+        { appointment_date: { $gte: startOfDay.toISOString(), $lte: endOfDay.toISOString() } },
+        { appointment_date: { $regex: `^${dayStr}` } },
+        { createdAt: { $gte: startOfDay, $lte: endOfDay } }
+      ]
+    }).sort({ createdAt: 1, appointment_date: 1 }).select('_id').lean();
+
+    if (dayDoctorAppts && dayDoctorAppts.length > 0) {
+      const idx = dayDoctorAppts.findIndex(a => String(a._id) === String(apptId));
+      if (idx >= 0) {
+        dailySerialNo = idx + 1;
+      } else {
+        dailySerialNo = dayDoctorAppts.length + 1;
+      }
+    }
+  }
+
+  const paddedSerial = String(dailySerialNo).padStart(2, '0');
+  const dayFormatted = dayStr.replace(/-/g, '');
+  const docInitials = ((docObj.firstName ? docObj.firstName.charAt(0) : 'D') + (docObj.lastName ? docObj.lastName.charAt(0) : 'R')).toUpperCase();
+  const doctorDayWiseReceiptNumber = `REC-${dayFormatted}-${docInitials}-${paddedSerial}`;
+
+  // 3. Generate QR Code
+  let qrCodeDataUrl = '';
+  if (generalSettings.googleLocationUrl) {
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(generalSettings.googleLocationUrl, {
+        width: 140,
+        margin: 1,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+    } catch (e) {
+      console.error('QR code generation error:', e);
+    }
+  }
+
+  // 4. Resolve Header and Footer images
+  const headerSrc = resolveReceiptImageSrc(generalSettings.defaultHeaderImage || '/Header.jpeg');
+  const footerSrc = resolveReceiptImageSrc(generalSettings.defaultFooterImage || '/Footer.png');
+
+  // 5. Fee breakdown
+  const hasPlatformItem = (invoice.items || []).some(it => (it.description || '').toLowerCase().includes('platform'));
+  const rawTotal = Number(invoice.total || appointment.price || 0);
+  const platformFee = hasPlatformItem ? 0 : Number(generalSettings.platformFee !== undefined ? generalSettings.platformFee : 50);
+  const grandTotal = rawTotal + platformFee;
+
   const html = `<!doctype html>
   <html>
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>Receipt ${escapeHtml(invoice.invoiceNumber || '')}</title>
+      <title>Receipt ${escapeHtml(doctorDayWiseReceiptNumber)}</title>
       <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #2d3748; max-width: 650px; margin: 0 auto; line-height: 1.5; background: #fff; }
-        .receipt-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); background: #ffffff; }
-        .header { text-align: center; border-bottom: 2px solid #edf2f7; padding-bottom: 16px; margin-bottom: 20px; }
-        .header h1 { margin: 0; color: #1a202c; font-size: 22px; font-weight: 700; }
-        .header p { margin: 4px 0 0; color: #718096; font-size: 14px; }
-        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; font-size: 14px; }
-        .detail-item strong { color: #4a5568; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-        .detail-item span { color: #1a202c; }
-        .table-section { margin-bottom: 20px; }
-        .table-section h3 { margin: 0 0 10px 0; color: #1a202c; font-size: 16px; font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-        th { background: #f7fafc; padding: 10px; text-align: left; border-bottom: 2px solid #edf2f7; color: #4a5568; font-weight: 600; }
-        td { padding: 10px; border-bottom: 1px solid #edf2f7; }
-        .totals { text-align: right; margin-top: 16px; font-size: 14px; }
-        .totals .grand-total { font-size: 18px; font-weight: bold; color: #2b6cb0; margin-top: 8px; }
-        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e6fffa; color: #234e52; }
-        .badge-unpaid { background: #fef3c7; color: #92400e; }
-        .footer-print-info { margin-top: 24px; padding-top: 12px; border-top: 1px dashed #e2e8f0; font-size: 11.5px; color: #718096; text-align: right; }
+        * { box-sizing: border-box; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          padding: 16px;
+          color: #1e293b;
+          max-width: 680px;
+          margin: 0 auto;
+          line-height: 1.45;
+          background: #f8fafc;
+        }
+        .receipt-card {
+          border: 1px solid #cbd5e1;
+          border-radius: 12px;
+          background: #ffffff;
+          overflow: hidden;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+        }
+        .header-image-container {
+          width: 100%;
+          background: #ffffff;
+          border-bottom: 2px solid #e2e8f0;
+          text-align: center;
+        }
+        .header-image-container img {
+          width: 100%;
+          max-height: 140px;
+          object-fit: contain;
+          display: block;
+        }
+        .receipt-body {
+          padding: 20px 24px;
+        }
+        .clinic-info {
+          text-align: center;
+          padding-bottom: 14px;
+          border-bottom: 1px solid #e2e8f0;
+          margin-bottom: 16px;
+        }
+        .clinic-name {
+          font-size: 20px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0;
+          letter-spacing: -0.3px;
+        }
+        .clinic-meta {
+          font-size: 12px;
+          color: #64748b;
+          margin-top: 4px;
+          line-height: 1.4;
+        }
+        .clinic-meta span {
+          margin: 0 4px;
+        }
+        .token-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+          border: 1.5px solid #bfdbfe;
+          border-radius: 10px;
+          padding: 12px 18px;
+          margin-bottom: 18px;
+        }
+        .token-left {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .token-badge {
+          background: #2563eb;
+          color: #ffffff;
+          border-radius: 8px;
+          padding: 6px 14px;
+          font-size: 24px;
+          font-weight: 900;
+          letter-spacing: 0.5px;
+          display: inline-block;
+          box-shadow: 0 2px 6px rgba(37,99,235,0.3);
+        }
+        .token-title {
+          font-size: 11px;
+          font-weight: 800;
+          color: #1e40af;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+        }
+        .token-subtitle {
+          font-size: 12px;
+          color: #3b82f6;
+          font-weight: 600;
+        }
+        .token-right {
+          text-align: right;
+          font-size: 12px;
+        }
+        .token-right .receipt-num {
+          font-size: 14px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .token-right .inv-ref {
+          font-size: 11px;
+          color: #64748b;
+          margin-top: 2px;
+        }
+        .details-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px 18px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 14px 16px;
+          margin-bottom: 18px;
+          font-size: 13px;
+        }
+        .detail-item strong {
+          color: #64748b;
+          display: block;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 2px;
+        }
+        .detail-item span {
+          color: #0f172a;
+          font-weight: 600;
+        }
+        .badge {
+          display: inline-block;
+          padding: 3px 8px;
+          border-radius: 12px;
+          font-size: 11px;
+          font-weight: 700;
+          background: #dcfce7;
+          color: #15803d;
+        }
+        .badge-unpaid {
+          background: #fef3c7;
+          color: #b45309;
+        }
+        .table-section {
+          margin-bottom: 16px;
+        }
+        .table-section h3 {
+          margin: 0 0 8px 0;
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+        th {
+          background: #f1f5f9;
+          padding: 8px 12px;
+          text-align: left;
+          border-bottom: 2px solid #cbd5e1;
+          color: #475569;
+          font-weight: 700;
+          font-size: 12px;
+        }
+        td {
+          padding: 8px 12px;
+          border-bottom: 1px solid #e2e8f0;
+          color: #334155;
+        }
+        .totals {
+          margin-top: 14px;
+          border-top: 2px dashed #cbd5e1;
+          padding-top: 10px;
+          text-align: right;
+        }
+        .grand-total {
+          font-size: 18px;
+          font-weight: 900;
+          color: #1e3a8a;
+        }
+        .qr-section {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          background: #f8fafc;
+          border: 1.5px dashed #94a3b8;
+          border-radius: 8px;
+          padding: 10px 14px;
+          margin-top: 16px;
+        }
+        .qr-section img {
+          width: 72px;
+          height: 72px;
+          border-radius: 6px;
+          border: 1px solid #cbd5e1;
+          background: #ffffff;
+        }
+        .qr-text strong {
+          display: block;
+          font-size: 13px;
+          color: #0f172a;
+        }
+        .qr-text span {
+          font-size: 11px;
+          color: #64748b;
+          display: block;
+          margin-top: 2px;
+        }
+        .footer-image-container {
+          width: 100%;
+          background: #ffffff;
+          border-top: 2px solid #e2e8f0;
+          text-align: center;
+        }
+        .footer-image-container img {
+          width: 100%;
+          max-height: 85px;
+          object-fit: contain;
+          display: block;
+        }
+        .footer-print-info {
+          padding: 10px 24px;
+          font-size: 11px;
+          color: #64748b;
+          text-align: right;
+          background: #f8fafc;
+          border-top: 1px solid #e2e8f0;
+        }
+        @media print {
+          body { background: #fff; padding: 0; }
+          .receipt-card { border: none; box-shadow: none; }
+        }
       </style>
     </head>
     <body>
       <div class="receipt-card">
-        <div class="header">
-          <h1>Medical Appointment Receipt</h1>
-          <p>Receipt #: ${escapeHtml(invoice.invoiceNumber || invoice._id || '')}</p>
+        ${headerSrc ? `
+        <div class="header-image-container">
+          <img src="${headerSrc}" alt="Clinic Header" />
         </div>
-        <div class="details-grid">
-          <div class="detail-item">
-            <strong>Patient Name</strong>
-            <span>${escapeHtml(patientName)}</span>
+        ` : ''}
+
+        <div class="receipt-body">
+          <div class="clinic-info">
+            <h1 class="clinic-name">${escapeHtml(generalSettings.orgName || 'BioMechaSoft OPD')}</h1>
+            <div class="clinic-meta">
+              ${generalSettings.regNo ? `<span><strong>Reg No:</strong> ${escapeHtml(generalSettings.regNo)}</span> •` : ''}
+              ${generalSettings.ownerName ? `<span><strong>Director:</strong> ${escapeHtml(generalSettings.ownerName)}</span> •` : ''}
+              <span>${escapeHtml(generalSettings.address || '')}</span>
+            </div>
           </div>
-          <div class="detail-item">
-            <strong>Doctor Name</strong>
-            <span>${escapeHtml(doctorName)}</span>
+
+          <div class="token-row">
+            <div class="token-left">
+              <div class="token-badge">#${paddedSerial}</div>
+              <div>
+                <div class="token-title">Daily Token / Serial No</div>
+                <div class="token-subtitle">${escapeHtml(doctorName)} • ${escapeHtml(dayStr)}</div>
+              </div>
+            </div>
+            <div class="token-right">
+              <div class="receipt-num">${escapeHtml(doctorDayWiseReceiptNumber)}</div>
+              <div class="inv-ref">Ref: ${escapeHtml(invoice.invoiceNumber || invoice._id || '')}</div>
+            </div>
           </div>
-          <div class="detail-item">
-            <strong>Department</strong>
-            <span>${escapeHtml(department)}</span>
+
+          <div class="details-grid">
+            <div class="detail-item">
+              <strong>Patient Name</strong>
+              <span>${escapeHtml(patientName)}</span>
+            </div>
+            <div class="detail-item">
+              <strong>Doctor Name</strong>
+              <span>${escapeHtml(doctorName)}</span>
+            </div>
+            <div class="detail-item">
+              <strong>Department</strong>
+              <span>${escapeHtml(department)}</span>
+            </div>
+            <div class="detail-item">
+              <strong>Date & Time</strong>
+              <span>${escapeHtml(issuedAt)}</span>
+            </div>
+            <div class="detail-item">
+              <strong>Phone / Contact</strong>
+              <span>${escapeHtml(patient.phone || appointment.phone || 'N/A')}</span>
+            </div>
+            <div class="detail-item">
+              <strong>Payment Status</strong>
+              <span class="badge ${invoice.status === 'Paid' || appointment.paymentStatus === 'Paid' ? '' : 'badge-unpaid'}">
+                ${escapeHtml(invoice.status || appointment.paymentStatus || 'Unpaid')}
+              </span>
+            </div>
           </div>
-          <div class="detail-item">
-            <strong>Date & Time</strong>
-            <span>${escapeHtml(issuedAt)}</span>
+
+          <div class="table-section">
+            <h3>Fee Details</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th style="text-align:center">Qty</th>
+                  <th style="text-align:right">Price</th>
+                  <th style="text-align:right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(invoice.items && invoice.items.length > 0) ? invoice.items.map(i => `
+                  <tr>
+                    <td>${escapeHtml(i.description || 'Consultation Fee')}</td>
+                    <td style="text-align:center">${escapeHtml(String(i.quantity || 1))}</td>
+                    <td style="text-align:right">₹${escapeHtml(String(i.unitPrice || invoice.total || 0))}</td>
+                    <td style="text-align:right">₹${escapeHtml(String(i.total || invoice.total || 0))}</td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td>Consultation Fee</td>
+                    <td style="text-align:center">1</td>
+                    <td style="text-align:right">₹${escapeHtml(String(rawTotal))}</td>
+                    <td style="text-align:right">₹${escapeHtml(String(rawTotal))}</td>
+                  </tr>
+                `}
+                ${platformFee > 0 ? `
+                  <tr>
+                    <td>Registration / Platform Fee</td>
+                    <td style="text-align:center">1</td>
+                    <td style="text-align:right">₹${escapeHtml(String(platformFee))}</td>
+                    <td style="text-align:right">₹${escapeHtml(String(platformFee))}</td>
+                  </tr>
+                ` : ''}
+              </tbody>
+            </table>
           </div>
-          <div class="detail-item">
-            <strong>Phone / Contact</strong>
-            <span>${escapeHtml(patient.phone || appointment.phone || 'N/A')}</span>
+
+          <div class="totals">
+            <div class="grand-total">Total Payable: ₹${escapeHtml(String(grandTotal))}</div>
           </div>
-          <div class="detail-item">
-            <strong>Payment Status</strong>
-            <span class="badge ${invoice.status === 'Paid' || appointment.paymentStatus === 'Paid' ? '' : 'badge-unpaid'}">${escapeHtml(invoice.status || appointment.paymentStatus || 'Unpaid')}</span>
+
+          ${qrCodeDataUrl ? `
+          <div class="qr-section">
+            <img src="${qrCodeDataUrl}" alt="Google Location QR Code" />
+            <div class="qr-text">
+              <strong>Scan for Clinic Location & Navigation</strong>
+              <span>Scan with your phone camera to open Google Maps navigation directly to the clinic.</span>
+            </div>
           </div>
+          ` : ''}
         </div>
 
-        <div class="table-section">
-          <h3>Fee Details</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th style="text-align:center">Qty</th>
-                <th style="text-align:right">Price</th>
-                <th style="text-align:right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${(invoice.items && invoice.items.length > 0) ? invoice.items.map(i => `
-                <tr>
-                  <td>${escapeHtml(i.description || 'Consultation Fee')}</td>
-                  <td style="text-align:center">${escapeHtml(String(i.quantity || 1))}</td>
-                  <td style="text-align:right">₹${escapeHtml(String(i.unitPrice || invoice.total || 0))}</td>
-                  <td style="text-align:right">₹${escapeHtml(String(i.total || invoice.total || 0))}</td>
-                </tr>
-              `).join('') : `
-                <tr>
-                  <td>Consultation Fee</td>
-                  <td style="text-align:center">1</td>
-                  <td style="text-align:right">₹${escapeHtml(String(invoice.total || appointment.price || 0))}</td>
-                  <td style="text-align:right">₹${escapeHtml(String(invoice.total || appointment.price || 0))}</td>
-                </tr>
-              `}
-            </tbody>
-          </table>
+        ${footerSrc ? `
+        <div class="footer-image-container">
+          <img src="${footerSrc}" alt="Clinic Footer" />
         </div>
-
-        <div class="totals">
-          <div class="grand-total">Total Payable: ₹${escapeHtml(String(invoice.total || appointment.price || 0))}</div>
-        </div>
+        ` : ''}
 
         <div class="footer-print-info">
           Printed By: <strong>${escapeHtml(printedByName)}</strong> (${escapeHtml(printedDateTime)})
