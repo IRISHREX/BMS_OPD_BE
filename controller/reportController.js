@@ -129,20 +129,22 @@ export const listReports = catchAsyncErrors(async (req, res, next) => {
   const filter = {};
   if (appointmentId) filter.appointmentId = appointmentId;
   if (doctorId && mongoose.isValidObjectId(doctorId)) filter.doctorId = new mongoose.Types.ObjectId(doctorId);
+  // Auto-sync any existing appointments to Report collection
+  try {
+    const allAppts = await Appointment.find({}).select('_id paymentStatus status').lean();
+    for (const a of allAppts) {
+      const rep = await Report.findOne({ appointmentId: a._id });
+      if (!rep) {
+        await upsertReportEntryForAppointment(a._id);
+      }
+    }
+  } catch (err) {
+    console.warn('Auto-sync appointments to reports error:', err.message);
+  }
+
   if (status) {
     if (status === 'Refund') {
       filter.status = 'Refund';
-      try {
-        const refundedAppts = await Appointment.find({ paymentStatus: 'Refund' }).select('_id').lean();
-        for (const ra of refundedAppts) {
-          const rep = await Report.findOne({ appointmentId: ra._id });
-          if (!rep || rep.status !== 'Refund') {
-            await upsertReportEntryForAppointment(ra._id);
-          }
-        }
-      } catch (e) {
-        console.warn('Auto-sync refunded reports error:', e.message);
-      }
     } else {
       filter.status = status;
     }
