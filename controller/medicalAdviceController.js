@@ -51,19 +51,36 @@ export const getAllSuggestions = catchAsyncErrors(async (req, res, next) => {
 });
 
 export const createMedicalAdvice = catchAsyncErrors(async (req, res, next) => {
-  const { name, symptoms, type, route, desese_description } = req.body;
-  if (!name) return next(new ErrorHandler("Name is required", 400));
+  console.log(">> CREATE_MEDICAL_ADVICE_REQ_BODY:", JSON.stringify(req.body, null, 2));
+  const { name, symptoms } = req.body;
+  if (!name || !name.trim()) return next(new ErrorHandler("Name is required", 400));
 
-  const advice = await MedicalAdvice.create({
-    name,
-    symptoms: Array.isArray(symptoms) ? symptoms : symptoms ? [symptoms] : [],
-    type,
-    route,
-    desese_description,
-  });
+  const payload = {
+    ...req.body,
+    name: name.trim(),
+    symptoms: Array.isArray(symptoms)
+      ? symptoms
+      : typeof symptoms === "string"
+      ? symptoms.split(",").map((s) => s.trim()).filter(Boolean)
+      : symptoms
+      ? [symptoms]
+      : [],
+  };
+
+  const advice = await MedicalAdvice.create(payload);
+  console.log(">> CREATED_ADVICE_IN_DB:", JSON.stringify(advice, null, 2));
 
   // create an internal message/log for this change
-  try { await Message.create({ firstName: 'System', lastName: '', email: 'system@local', phone: '', message: `Medicine added: ${advice.name}`, sentAt: new Date() }); } catch(e){ }
+  try {
+    await Message.create({
+      firstName: "System",
+      lastName: "",
+      email: "system@local",
+      phone: "",
+      message: `Medicine added: ${advice.name}`,
+      sentAt: new Date(),
+    });
+  } catch (e) {}
 
   res.status(201).json({ success: true, advice });
 });
