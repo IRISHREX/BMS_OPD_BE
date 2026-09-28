@@ -3,6 +3,7 @@ import {
   deleteAppointment,
   getAllAppointments,
   getAppointmentsByPatientId,
+  getAppointmentById,
   postAppointment,
   searchAppointments,
   updateAppointmentByPatientId,
@@ -11,6 +12,7 @@ import {
   bulkDeleteAppointments,
   deleteAppointmentsByPatientId,
   suggestPatients,
+  ensureAppointmentPatient,
 } from "../controller/appointmentController.js";
 import {
   isAdminAuthenticated,
@@ -86,6 +88,7 @@ const router = express.Router();
  */
 // Only dashboard users (Admin/Doctor/Compounder) may create appointments via dashboard
 router.post("/post",isDashboardAuthenticated,postAppointment);
+router.post("/ensure-patient/:id", isDashboardAuthenticated, ensureAppointmentPatient);
 
 /**
  * @openapi
@@ -193,6 +196,9 @@ router.get("/search", searchAppointments);
  */
 // Suggest patients by partial name/phone/email/address for booking autosuggest
 router.get("/suggest", suggestPatients);
+
+// Get single appointment by appointment ID
+router.get("/:id", isDashboardAuthenticated, getAppointmentById);
 
 /**
  * @openapi

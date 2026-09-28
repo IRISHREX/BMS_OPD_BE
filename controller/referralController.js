@@ -1,9 +1,11 @@
 import { Referral } from "../models/referralSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
+import { Invoice } from "../models/invoiceSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { syncReportForAppointment } from "./appointmentController.js";
+import validator from "validator";
 
 // Create Referral (Doctor Outbound Referral to Hospital / Clinic)
 export const createReferral = catchAsyncErrors(async (req, res, next) => {
@@ -255,10 +257,74 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
   }
 
   if (referral.convertedToAppointment && referral.appointmentId) {
+    let existingAppt = null;
+    try {
+      existingAppt = await Appointment.findById(referral.appointmentId);
+    } catch (e) {
+      console.warn("Could not find existing appointment for referral:", e.message);
+    }
+
+    // Self-heal: ensure existing appointment has patientId linked
+    if (existingAppt && !existingAppt.patientId) {
+      let patient = null;
+      if (referral.patientId) {
+        patient = await User.findById(referral.patientId).catch(() => null);
+      }
+      if (!patient) {
+        const pPhone = (referral.patientPhone || referral.applicantPhone || "").trim();
+        const pEmail = (referral.patientEmail || referral.applicantEmail || "").toLowerCase().trim();
+        const pNic = (referral.nic || "").trim();
+        const queries = [];
+        if (pPhone) queries.push({ phone: pPhone });
+        if (pEmail && validator.isEmail(pEmail) && !pEmail.includes("patient@opd.local") && !pEmail.includes("biomechasoft.com")) {
+          queries.push({ email: pEmail });
+        }
+        if (pNic) queries.push({ nic: pNic });
+        if (queries.length > 0) {
+          patient = await User.findOne({ $or: queries, role: "Patient" });
+        }
+      }
+      if (!patient) {
+        const rawName = (referral.patientName || "").trim();
+        const nameParts = rawName.replace(/\s+/g, " ").split(" ").filter(Boolean);
+        const firstName = nameParts[0] || "Patient";
+        const lastName = nameParts.slice(1).join(" ") || "";
+        const rawPhone = (referral.patientPhone || referral.applicantPhone || "").replace(/\D/g, "");
+        const phoneToUse = rawPhone.length >= 10 ? rawPhone.slice(-10) : undefined;
+        const emailCand = (referral.patientEmail || referral.applicantEmail || "").toLowerCase().trim();
+        const emailToUse = (emailCand && validator.isEmail(emailCand) && !emailCand.includes("patient@opd.local") && !emailCand.includes("biomechasoft.com"))
+          ? emailCand
+          : `${firstName.toLowerCase().replace(/[^a-z0-9]/g, "")}.${Date.now().toString().slice(-4)}@thyrogen.local`;
+        const nicToUse = (referral.nic || "").trim() || (phoneToUse ? phoneToUse.slice(0, 13).padEnd(13, "0") : undefined);
+        const ageVal = referral.age || 30;
+        const now = new Date();
+        const dobDate = new Date(now.getFullYear() - Number(ageVal), now.getMonth(), now.getDate());
+
+        patient = await User.create({
+          firstName,
+          lastName,
+          name: rawName || `${firstName} ${lastName}`.trim(),
+          email: emailToUse,
+          phone: phoneToUse,
+          nic: nicToUse,
+          dob: dobDate,
+          gender: (referral.gender && referral.gender.toLowerCase() === "female") ? "Female" : "Male",
+          password: "defaultPassword123",
+          role: "Patient",
+          age: ageVal,
+        });
+      }
+      existingAppt.patientId = patient._id;
+      await existingAppt.save();
+      referral.patientId = patient._id;
+      await referral.save();
+    }
+
     return res.status(200).json({
       success: true,
       message: "Referral has already been converted to an appointment",
       appointmentId: referral.appointmentId,
+      appointment: existingAppt,
       referral,
     });
   }
@@ -296,11 +362,73 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
     ? referral.appointmentDate.toISOString()
     : new Date().toISOString();
 
+  // Determine or create patient User record
+  let patient = null;
+  if (referral.patientId) {
+    try {
+      patient = await User.findById(referral.patientId);
+    } catch (e) {
+      console.warn("Patient lookup failed for referral.patientId:", e.message);
+    }
+  }
+
+  const patientPhone = (referral.patientPhone || referral.applicantPhone || "").trim();
+  const patientEmail = (referral.patientEmail || referral.applicantEmail || "").toLowerCase().trim();
+  const patientNic = (referral.nic || "").trim();
+
+  if (!patient) {
+    const searchQueries = [];
+    if (patientPhone) searchQueries.push({ phone: patientPhone });
+    if (patientEmail && validator.isEmail(patientEmail) && !patientEmail.includes("patient@opd.local") && !patientEmail.includes("biomechasoft.com")) {
+      searchQueries.push({ email: patientEmail });
+    }
+    if (patientNic) searchQueries.push({ nic: patientNic });
+
+    if (searchQueries.length > 0) {
+      patient = await User.findOne({
+        $or: searchQueries,
+        role: "Patient",
+      });
+    }
+  }
+
+  if (!patient) {
+    const rawName = (referral.patientName || "").trim();
+    const nameParts = rawName.replace(/\s+/g, " ").split(" ").filter(Boolean);
+    const firstName = nameParts[0] || "Patient";
+    const lastName = nameParts.slice(1).join(" ") || "";
+    const rawDigits = (patientPhone || "").replace(/\D/g, "");
+    const phoneToUse = rawDigits.length >= 10 ? rawDigits.slice(-10) : undefined;
+    const emailToUse = (patientEmail && validator.isEmail(patientEmail) && !patientEmail.includes("patient@opd.local") && !patientEmail.includes("biomechasoft.com"))
+      ? patientEmail
+      : `${firstName.toLowerCase().replace(/[^a-z0-9]/g, "")}.${Date.now().toString().slice(-4)}@thyrogen.local`;
+    const nicToUse = patientNic || (phoneToUse ? phoneToUse.slice(0, 13).padEnd(13, "0") : undefined);
+
+    let dobDate = null;
+    const ageVal = referral.age || 30;
+    const now = new Date();
+    dobDate = new Date(now.getFullYear() - Number(ageVal), now.getMonth(), now.getDate());
+
+    patient = await User.create({
+      firstName,
+      lastName,
+      name: rawName || `${firstName} ${lastName}`.trim(),
+      email: emailToUse,
+      phone: phoneToUse,
+      nic: nicToUse,
+      dob: dobDate,
+      gender: (referral.gender && referral.gender.toLowerCase() === "female") ? "Female" : "Male",
+      password: "defaultPassword123",
+      role: "Patient",
+      age: ageVal,
+    });
+  }
+
   const newAppointment = new Appointment({
-    name: referral.patientName,
-    phone: referral.patientPhone || referral.applicantPhone || "0000000000",
-    email: referral.patientEmail || referral.applicantEmail || "patient@opd.local",
-    age: referral.age || 30,
+    name: referral.patientName || patient.name || `${patient.firstName} ${patient.lastName}`.trim(),
+    phone: referral.patientPhone || referral.applicantPhone || patient.phone || "0000000000",
+    email: referral.patientEmail || referral.applicantEmail || patient.email || "patient@opd.local",
+    age: referral.age || patient.age || 30,
     gender: (referral.gender && referral.gender.toLowerCase() === "female") ? "Female" : "Male",
     appointment_date: appointmentDateStr,
     department: referral.department || "General",
@@ -309,6 +437,7 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
       lastName: doctorLastName,
     },
     doctorId: docId || req.user?._id,
+    patientId: patient._id,
     price: doctorFees,
     paymentStatus: "Due",
     hasVisited: false,
@@ -326,6 +455,32 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
 
   await newAppointment.save();
 
+  // Auto-generate invoice for referral appointment
+  try {
+    const genInvoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-6)}`;
+    const platformFee = 50;
+    const consultationFee = Number(doctorFees || 500);
+    const invoiceTotal = consultationFee + platformFee;
+    await Invoice.create({
+      invoiceNumber: genInvoiceNumber,
+      appointment: newAppointment._id,
+      patient: patient._id,
+      doctor: docId || req.user?._id,
+      items: [
+        { description: "Consultation Fee", quantity: 1, unitPrice: consultationFee, total: consultationFee },
+        { description: "Platform Fee", quantity: 1, unitPrice: platformFee, total: platformFee },
+      ],
+      subtotal: invoiceTotal,
+      tax: 0,
+      discount: 0,
+      total: invoiceTotal,
+      status: "Unpaid",
+      payments: [],
+    });
+  } catch (invErr) {
+    console.warn("Auto-invoice generation error for referral appointment:", invErr.message);
+  }
+
   try {
     await syncReportForAppointment(newAppointment._id);
   } catch (e) {
@@ -334,6 +489,7 @@ export const convertToAppointment = catchAsyncErrors(async (req, res, next) => {
 
   referral.convertedToAppointment = true;
   referral.appointmentId = newAppointment._id;
+  referral.patientId = patient._id;
   referral.status = "scheduled";
   referral.convertedAt = new Date();
   referral.convertedBy = req.user?._id;

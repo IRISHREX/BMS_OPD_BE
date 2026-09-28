@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+import validator from "validator";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/error.js";
 import { Appointment } from "../models/appointmentSchema.js";
@@ -498,9 +500,25 @@ export const getAllAppointments = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
+// Get single appointment by appointment ID
+export const getAppointmentById = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  if (!id || id === "undefined" || id === "null" || !mongoose.Types.ObjectId.isValid(id)) {
+    return next(new ErrorHandler("Invalid appointment ID", 400));
+  }
+  const appointment = await Appointment.findById(id).populate("booked_by").populate("invoices");
+  if (!appointment) {
+    return next(new ErrorHandler("Appointment not found!", 404));
+  }
+  return res.status(200).json({ success: true, appointment });
+});
+
 // Get appointments by patient ID
 export const getAppointmentsByPatientId = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
+  if (!id || id === "undefined" || id === "null" || !mongoose.Types.ObjectId.isValid(id)) {
+    return next(new ErrorHandler("Invalid or missing patient ID", 400));
+  }
   const requester = req.user;
   const query = { patientId: id };
   if (requester && requester.role === 'Doctor') {
@@ -1069,3 +1087,92 @@ export const updateAppointmentById = catchAsyncErrors(async (req, res, next) => 
     appointment,
   });
 });
+
+// Ensure an appointment has a valid linked Patient User record
+export const ensureAppointmentPatient = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const appointment = await Appointment.findById(id);
+  if (!appointment) {
+    return next(new ErrorHandler("Appointment not found", 404));
+  }
+
+  if (appointment.patientId) {
+    try {
+      const existingPatient = await User.findById(appointment.patientId);
+      if (existingPatient) {
+        return res.status(200).json({
+          success: true,
+          patientId: existingPatient._id,
+          patient: existingPatient,
+        });
+      }
+    } catch (e) {
+      console.warn("Error looking up existing patientId:", e.message);
+    }
+  }
+
+  // Find or create patient User
+  const patientPhone = (appointment.phone || "").trim();
+  const patientEmail = (appointment.email || "").toLowerCase().trim();
+  const patientNic = (appointment.nic || "").trim();
+
+  let patient = null;
+  const searchQueries = [];
+  if (patientPhone) searchQueries.push({ phone: patientPhone });
+  if (patientEmail && validator.isEmail(patientEmail) && !patientEmail.includes("patient@opd.local") && !patientEmail.includes("biomechasoft.com")) {
+    searchQueries.push({ email: patientEmail });
+  }
+  if (patientNic) searchQueries.push({ nic: patientNic });
+
+  if (searchQueries.length > 0) {
+    patient = await User.findOne({
+      $or: searchQueries,
+      role: "Patient",
+    });
+  }
+
+  if (!patient) {
+    const rawName = (appointment.name || "").trim();
+    const nameParts = rawName.replace(/\s+/g, " ").split(" ").filter(Boolean);
+    const firstName = nameParts[0] || "Patient";
+    const lastName = nameParts.slice(1).join(" ") || "";
+    const rawDigits = (patientPhone || "").replace(/\D/g, "");
+    const phoneToUse = rawDigits.length >= 10 ? rawDigits.slice(-10) : undefined;
+    const emailToUse = (patientEmail && validator.isEmail(patientEmail) && !patientEmail.includes("patient@opd.local") && !patientEmail.includes("biomechasoft.com"))
+      ? patientEmail
+      : `${firstName.toLowerCase().replace(/[^a-z0-9]/g, "")}.${Date.now().toString().slice(-4)}@thyrogen.local`;
+    const nicToUse = patientNic || (phoneToUse ? phoneToUse.slice(0, 13).padEnd(13, "0") : undefined);
+
+    let dobDate = appointment.dob || null;
+    const ageVal = appointment.age || 30;
+    if (!dobDate && ageVal) {
+      const now = new Date();
+      dobDate = new Date(now.getFullYear() - Number(ageVal), now.getMonth(), now.getDate());
+    }
+
+    patient = await User.create({
+      firstName,
+      lastName,
+      name: rawName || `${firstName} ${lastName}`.trim(),
+      email: emailToUse,
+      phone: phoneToUse,
+      nic: nicToUse,
+      dob: dobDate,
+      gender: appointment.gender && appointment.gender.toLowerCase() === "female" ? "Female" : "Male",
+      password: "defaultPassword123",
+      role: "Patient",
+      age: ageVal,
+    });
+  }
+
+  appointment.patientId = patient._id;
+  await appointment.save();
+
+  return res.status(200).json({
+    success: true,
+    patientId: patient._id,
+    patient,
+    message: "Patient record linked successfully",
+  });
+});
+

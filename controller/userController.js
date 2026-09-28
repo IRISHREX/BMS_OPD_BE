@@ -595,6 +595,9 @@ export const getAllDoctors = catchAsyncErrors(async (req, res, next) => {
 // Get patient by ID
 export const getPatientById = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    return next(new ErrorHandler("Patient not found!", 404));
+  }
   const patient = await User.findOne({ _id: id, role: "Patient" });
   if (!patient) {
     return next(new ErrorHandler("Patient not found!", 404));
