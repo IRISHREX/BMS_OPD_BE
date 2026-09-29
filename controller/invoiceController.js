@@ -7,6 +7,7 @@ import ErrorHandler from "../middlewares/error.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { Report } from "../models/reportSchema.js";
+import { Referral } from "../models/referralSchema.js";
 import { GeneralSettings } from "../models/generalSettingsSchema.js";
 import { syncReportForAppointment } from "./appointmentController.js";
 import { User } from "../models/userSchema.js";
@@ -528,7 +529,39 @@ export const getInvoiceStats = catchAsyncErrors(async (req, res, next) => {
 
   const groupArray = Object.values(groups).sort((a, b) => (a.period > b.period ? 1 : -1));
 
-  return res.status(200).json({ success: true, totalEarning, totalDue, groups: groupArray });
+  // Compute overall referral expenses
+  let totalExpenses = 0;
+  let paidExpenses = 0;
+  try {
+    const refAgg = await Referral.aggregate([
+      { $match: { commissionAmount: { $gt: 0 } } },
+      {
+        $group: {
+          _id: null,
+          totalExpenses: { $sum: "$commissionAmount" },
+          paidExpenses: {
+            $sum: { $cond: [{ $eq: ["$commissionStatus", "paid"] }, "$commissionAmount", 0] },
+          },
+        },
+      },
+    ]);
+    if (refAgg.length > 0) {
+      totalExpenses = refAgg[0].totalExpenses || 0;
+      paidExpenses = refAgg[0].paidExpenses || 0;
+    }
+  } catch (refErr) {
+    console.warn("Referral expenses error in getInvoiceStats:", refErr.message);
+  }
+
+  return res.status(200).json({
+    success: true,
+    totalEarning,
+    totalDue,
+    totalExpenses,
+    paidExpenses,
+    netEarning: Math.max(0, totalEarning - totalExpenses),
+    groups: groupArray,
+  });
 });
 
 // Update invoices by appointment id (apply the same partial update to all invoices for the appointment)

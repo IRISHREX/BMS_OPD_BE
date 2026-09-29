@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { Report } from "../models/reportSchema.js";
+import { Referral } from "../models/referralSchema.js";
 import { logEvent } from "../utils/logger.js";
 
 // Helper to parse ISO date (day start / day end)
@@ -120,7 +121,48 @@ export const getReportSummary = catchAsyncErrors(async (req, res, next) => {
   // convert map to sorted array
   const periods = Array.from(byPeriod.values()).sort((x, y) => x.period.localeCompare(y.period));
 
-  return res.status(200).json({ success: true, totals: { revenue: totalRevenue, due: totalDue }, byPeriod: periods });
+  // Aggregate referral commission expenses
+  let totalExpenses = 0;
+  let paidExpenses = 0;
+  try {
+    const refMatch = { commissionAmount: { $gt: 0 } };
+    if (s || e) {
+      refMatch.createdAt = {};
+      if (s) refMatch.createdAt.$gte = s;
+      if (e) refMatch.createdAt.$lte = e;
+    }
+    const refAgg = await Referral.aggregate([
+      { $match: refMatch },
+      {
+        $group: {
+          _id: null,
+          totalExpenses: { $sum: "$commissionAmount" },
+          paidExpenses: {
+            $sum: { $cond: [{ $eq: ["$commissionStatus", "paid"] }, "$commissionAmount", 0] },
+          },
+        },
+      },
+    ]);
+    if (refAgg.length > 0) {
+      totalExpenses = refAgg[0].totalExpenses || 0;
+      paidExpenses = refAgg[0].paidExpenses || 0;
+    }
+  } catch (refErr) {
+    console.warn("Referral expenses aggregation error in reportController:", refErr.message);
+  }
+
+  return res.status(200).json({
+    success: true,
+    totals: {
+      revenue: totalRevenue,
+      due: totalDue,
+      expenses: totalExpenses,
+      paidExpenses,
+      net: Math.max(0, totalRevenue - totalExpenses),
+      invoiced: totalRevenue + totalDue,
+    },
+    byPeriod: periods,
+  });
 });
 
 // List / search persisted report entries

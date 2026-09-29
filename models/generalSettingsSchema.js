@@ -58,6 +58,38 @@ const generalSettingsSchema = new mongoose.Schema(
         default: false,
       },
     },
+    commissionSettings: {
+      registeredSelfPercentage: {
+        type: Number,
+        default: 5,
+        min: 0,
+        max: 100,
+      },
+      registeredOtherPercentage: {
+        type: Number,
+        default: 8,
+        min: 0,
+        max: 100,
+      },
+      guestSelfPercentage: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100,
+      },
+      guestOtherPercentage: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100,
+      },
+      defaultPercentage: {
+        type: Number,
+        default: 5,
+        min: 0,
+        max: 100,
+      },
+    },
   },
   { timestamps: true }
 );

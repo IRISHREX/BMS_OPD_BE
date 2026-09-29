@@ -5,6 +5,7 @@ import {
   saveAddressToStorage,
   deleteAddressFromStorage,
   updateSoundSettings,
+  updateCommissionSettings,
 } from "../controller/generalSettingsController.js";
 import { uploadClinicImagesDisk } from "../middlewares/upload.js";
 
@@ -17,5 +18,6 @@ router.put("/", uploadClinicImagesDisk, updateGeneralSettings);
 router.post("/save-address", saveAddressToStorage);
 router.post("/delete-address", deleteAddressFromStorage);
 router.post("/sound-settings", updateSoundSettings);
+router.post("/commission-settings", updateCommissionSettings);
 
 export default router;

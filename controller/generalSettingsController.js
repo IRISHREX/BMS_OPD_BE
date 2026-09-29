@@ -141,6 +141,30 @@ export const updateGeneralSettings = catchAsyncErrors(async (req, res, next) => 
     settings.soundSettings.isMuted = soundMuted === "true" || soundMuted === true;
   }
 
+  // Handle commission settings (predefined commissions based on booking type)
+  const incomingComm = req.body.commissionSettings;
+  if (incomingComm) {
+    try {
+      const parsed = typeof incomingComm === "string" ? JSON.parse(incomingComm) : incomingComm;
+      settings.commissionSettings = settings.commissionSettings || {};
+      if (parsed.registeredSelfPercentage !== undefined) {
+        settings.commissionSettings.registeredSelfPercentage = Math.max(0, Math.min(100, Number(parsed.registeredSelfPercentage)));
+      }
+      if (parsed.registeredOtherPercentage !== undefined) {
+        settings.commissionSettings.registeredOtherPercentage = Math.max(0, Math.min(100, Number(parsed.registeredOtherPercentage)));
+      }
+      if (parsed.guestSelfPercentage !== undefined) {
+        settings.commissionSettings.guestSelfPercentage = Math.max(0, Math.min(100, Number(parsed.guestSelfPercentage)));
+      }
+      if (parsed.guestOtherPercentage !== undefined) {
+        settings.commissionSettings.guestOtherPercentage = Math.max(0, Math.min(100, Number(parsed.guestOtherPercentage)));
+      }
+      if (parsed.defaultPercentage !== undefined) {
+        settings.commissionSettings.defaultPercentage = Math.max(0, Math.min(100, Number(parsed.defaultPercentage)));
+      }
+    } catch (_) {}
+  }
+
   // Also persist sound settings to currently authenticated user if present
   if (req.user && (soundVolume !== undefined || soundMuted !== undefined || soundSettings)) {
     try {
@@ -295,3 +319,45 @@ export const updateSoundSettings = catchAsyncErrors(async (req, res, next) => {
     soundSettings: settings.soundSettings,
   });
 });
+
+/**
+ * Save predefined referral commission settings based on user type & booking target
+ */
+export const updateCommissionSettings = catchAsyncErrors(async (req, res, next) => {
+  const {
+    registeredSelfPercentage,
+    registeredOtherPercentage,
+    guestSelfPercentage,
+    guestOtherPercentage,
+    defaultPercentage,
+  } = req.body;
+
+  let settings = await GeneralSettings.findOne();
+  if (!settings) settings = new GeneralSettings({});
+
+  settings.commissionSettings = settings.commissionSettings || {};
+  if (registeredSelfPercentage !== undefined) {
+    settings.commissionSettings.registeredSelfPercentage = Math.max(0, Math.min(100, Number(registeredSelfPercentage)));
+  }
+  if (registeredOtherPercentage !== undefined) {
+    settings.commissionSettings.registeredOtherPercentage = Math.max(0, Math.min(100, Number(registeredOtherPercentage)));
+  }
+  if (guestSelfPercentage !== undefined) {
+    settings.commissionSettings.guestSelfPercentage = Math.max(0, Math.min(100, Number(guestSelfPercentage)));
+  }
+  if (guestOtherPercentage !== undefined) {
+    settings.commissionSettings.guestOtherPercentage = Math.max(0, Math.min(100, Number(guestOtherPercentage)));
+  }
+  if (defaultPercentage !== undefined) {
+    settings.commissionSettings.defaultPercentage = Math.max(0, Math.min(100, Number(defaultPercentage)));
+  }
+
+  await settings.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Referral commission settings updated successfully!",
+    commissionSettings: settings.commissionSettings,
+  });
+});
+

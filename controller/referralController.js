@@ -3,6 +3,7 @@ import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Message } from "../models/messageSchema.js";
+import { GeneralSettings } from "../models/generalSettingsSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { syncReportForAppointment } from "./appointmentController.js";
@@ -30,6 +31,14 @@ export const createReferral = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Patient name is required", 400));
   }
 
+  let defaultDocPercent = 8;
+  try {
+    const genSettings = await GeneralSettings.findOne().lean();
+    if (genSettings?.commissionSettings?.registeredOtherPercentage !== undefined) {
+      defaultDocPercent = genSettings.commissionSettings.registeredOtherPercentage;
+    }
+  } catch (_) {}
+
   const referral = new Referral({
     referralType: "doctor_referral",
     patientId: patientId || undefined,
@@ -48,6 +57,7 @@ export const createReferral = catchAsyncErrors(async (req, res, next) => {
     referredBy: req.user?._id,
     referredByName: (req.user?.firstName || "Dr.") + " " + (req.user?.lastName || "Physician"),
     referredBySpecialty: req.user?.specialty || req.user?.specialization,
+    commissionPercent: req.body.commissionPercent !== undefined ? Number(req.body.commissionPercent) : defaultDocPercent,
   });
 
   await referral.save();
@@ -196,6 +206,47 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     }
   }
 
+  // Predefined Commission Resolution:
+  // - Registered Referrer Self: 5% (or configured)
+  // - Registered Referrer for Someone Else: 8% (or configured)
+  // - Guest / Unregistered Self: 0% (or configured)
+  // - Guest / Unregistered Other: 0% (or configured)
+  const isExistingRegistered = Boolean(req.user || (!createdNewUser && referrerUser));
+  const isSelf =
+    (applicantBy || "").trim().toLowerCase().startsWith("self") ||
+    (bookerName && patientName && bookerName.toLowerCase() === patientName.trim().toLowerCase()) ||
+    (bookerPhone && patientPhone && bookerPhone === patientPhone);
+
+  let resolvedPercent;
+  if (commissionPercent !== undefined && commissionPercent !== null && commissionPercent !== "") {
+    resolvedPercent = Number(commissionPercent);
+  } else {
+    try {
+      const genSettings = await GeneralSettings.findOne().lean();
+      const commRules = genSettings?.commissionSettings || {
+        registeredSelfPercentage: 5,
+        registeredOtherPercentage: 8,
+        guestSelfPercentage: 0,
+        guestOtherPercentage: 0,
+        defaultPercentage: 5,
+      };
+
+      if (isExistingRegistered) {
+        resolvedPercent = isSelf
+          ? commRules.registeredSelfPercentage
+          : commRules.registeredOtherPercentage;
+      } else {
+        resolvedPercent = isSelf
+          ? commRules.guestSelfPercentage
+          : commRules.guestOtherPercentage;
+      }
+    } catch (_) {}
+
+    if (resolvedPercent === undefined || isNaN(resolvedPercent)) {
+      resolvedPercent = isExistingRegistered ? (isSelf ? 5 : 8) : 0;
+    }
+  }
+
   const referral = new Referral({
     referralType: "patient_request",
     patientName: patientName.trim(),
@@ -223,7 +274,7 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
     convertedToAppointment: false,
     referredBy: referrerUser?._id || undefined,
     referredByName: bookerName || "Patient Request",
-    commissionPercent: commissionPercent ? Number(commissionPercent) : 5,
+    commissionPercent: Math.max(0, Math.min(100, Number(resolvedPercent))),
     commissionAmount: 0,
     commissionStatus: "pending",
   });
