@@ -7,7 +7,7 @@ export const dbConnection = async () => {
   const dbName = process.env.DB_NAME || "throgendb";
   const atlasUri = process.env.MONGO_URI_ATLAS;
 
-  const maxRetries = 8;
+  const maxRetries = 30;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await mongoose.connect(localUri, {
@@ -24,7 +24,8 @@ export const dbConnection = async () => {
     }
   }
 
-  if (atlasUri) {
+  // If explicitly enabled, try Atlas, otherwise exit with error so PM2 restarts when mongod is ready
+  if (process.env.USE_ATLAS_FAILOVER === "true" && atlasUri) {
     console.log("🔄 Initiating automatic failover to MongoDB Atlas...");
     try {
       await mongoose.connect(atlasUri, {
@@ -32,8 +33,12 @@ export const dbConnection = async () => {
         serverSelectionTimeoutMS: 10000,
       });
       console.log("✅ Connected to fallback MongoDB Atlas successfully!");
+      return;
     } catch (atlasErr) {
-      console.error("❌ Both local MongoDB and Atlas failover failed:", atlasErr.message);
+      console.error("❌ Atlas failover also failed:", atlasErr.message);
     }
   }
+
+  console.error("❌ Failed to connect to local MongoDB after 30 attempts. Exiting process so PM2 can retry.");
+  process.exit(1);
 };
