@@ -88,6 +88,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "default",
   },
+  soundSettings: {
+    volume: { type: Number, default: 50, min: 0, max: 100 },
+    isMuted: { type: Boolean, default: false },
+  },
 });
 
 userSchema.pre("save", async function (next) {

@@ -2,6 +2,7 @@ import { Referral } from "../models/referralSchema.js";
 import { Appointment } from "../models/appointmentSchema.js";
 import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
+import { Message } from "../models/messageSchema.js";
 import ErrorHandler from "../middlewares/error.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import { syncReportForAppointment } from "./appointmentController.js";
@@ -228,6 +229,27 @@ export const bookPatientReferral = catchAsyncErrors(async (req, res, next) => {
   });
 
   await referral.save();
+
+  // Create system notification message so it pops up in dashboard & messages
+  try {
+    const adminUser = await User.findOne({ role: "Admin" });
+    const notifRecipient = targetDoctorId || adminUser?._id;
+    const notifPhone = (bookerPhone && bookerPhone.length === 10) ? bookerPhone : "9999999999";
+    const notifEmail = (bookerEmail && validator.isEmail(bookerEmail)) ? bookerEmail.toLowerCase() : "referrals@thyrogendiagnostic.in";
+    const notifMsg = `New Inbound Referral received! Patient: ${patientName.trim()}, Phone: ${bookerPhone || "N/A"}, Doctor: ${doctorName || "General"}, Referrer: ${bookerName || "Guest"}`;
+
+    await Message.create({
+      firstName: "Referral",
+      lastName: "Notification",
+      email: notifEmail,
+      phone: notifPhone,
+      message: notifMsg,
+      recipient: notifRecipient,
+      read: false,
+    });
+  } catch (notifErr) {
+    console.warn("Could not create referral notification message:", notifErr.message);
+  }
 
   res.status(201).json({
     success: true,
@@ -701,6 +723,19 @@ export const updateReferralStatus = catchAsyncErrors(async (req, res, next) => {
 
   if (status === "completed") {
     referral.dischargeDate = new Date();
+    if (referral.commissionStatus !== "paid") {
+      let baseFee = 500;
+      if (referral.appointmentId) {
+        try {
+          const appt = await Appointment.findById(referral.appointmentId);
+          if (appt && (appt.doctorFee || appt.price)) {
+            baseFee = (Number(appt.doctorFee) || 0) + (Number(appt.price) || 0) || 500;
+          }
+        } catch (_) {}
+      }
+      referral.commissionAmount = Math.round((baseFee * (referral.commissionPercent || 5)) / 100);
+      referral.commissionStatus = "calculated";
+    }
   }
 
   await referral.save();
@@ -794,5 +829,111 @@ export const getReferralStatistics = catchAsyncErrors(async (req, res, next) => 
       completed,
       byUrgency,
     },
+  });
+});
+
+// Update Referral Commission (Percentage or manual amount)
+export const updateReferralCommission = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const { commissionPercent, commissionAmount, commissionStatus } = req.body;
+
+  const referral = await Referral.findById(id);
+  if (!referral) return next(new ErrorHandler("Referral not found", 404));
+
+  if (commissionPercent !== undefined) {
+    referral.commissionPercent = Math.max(0, Math.min(100, Number(commissionPercent)));
+  }
+  if (commissionStatus !== undefined) {
+    referral.commissionStatus = commissionStatus;
+  }
+  if (commissionAmount !== undefined) {
+    referral.commissionAmount = Number(commissionAmount);
+  } else if (referral.commissionStatus !== "paid") {
+    // Recalculate based on appointment fee
+    let baseAmount = 500;
+    if (referral.appointmentId) {
+      try {
+        const appt = await Appointment.findById(referral.appointmentId);
+        if (appt && (appt.price || appt.doctorFee)) {
+          baseAmount = (Number(appt.doctorFee) || 0) + (Number(appt.price) || 0) || 500;
+        }
+      } catch (_) {}
+    }
+    referral.commissionAmount = Math.round((baseAmount * (referral.commissionPercent || 5)) / 100);
+    if (referral.status === "completed" && referral.commissionStatus === "pending") {
+      referral.commissionStatus = "calculated";
+    }
+  }
+
+  await referral.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Referral commission updated successfully",
+    referral,
+  });
+});
+
+// Pay Referral Commission (Single)
+export const payReferralCommission = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+  const referral = await Referral.findById(id);
+  if (!referral) return next(new ErrorHandler("Referral not found", 404));
+
+  referral.commissionStatus = "paid";
+  if (!referral.commissionAmount || referral.commissionAmount <= 0) {
+    const pct = referral.commissionPercent || 5;
+    referral.commissionAmount = Math.round((500 * pct) / 100);
+  }
+  await referral.save();
+
+  res.status(200).json({
+    success: true,
+    message: `Commission of ₹${referral.commissionAmount} marked as Paid for ${referral.referredByName || referral.applicantName || "Referrer"}`,
+    referral,
+  });
+});
+
+// Bulk Pay Referral Commissions
+export const bulkPayReferralCommissions = catchAsyncErrors(async (req, res, next) => {
+  const { referralIds } = req.body;
+  if (!Array.isArray(referralIds) || referralIds.length === 0) {
+    return next(new ErrorHandler("Please provide an array of referralIds to pay", 400));
+  }
+
+  const updated = [];
+  for (const id of referralIds) {
+    const ref = await Referral.findById(id);
+    if (ref) {
+      ref.commissionStatus = "paid";
+      if (!ref.commissionAmount || ref.commissionAmount <= 0) {
+        const pct = ref.commissionPercent || 5;
+        ref.commissionAmount = Math.round((500 * pct) / 100);
+      }
+      await ref.save();
+      updated.push(ref);
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: `Successfully marked ${updated.length} referral commissions as Paid`,
+    count: updated.length,
+  });
+});
+
+// Bulk Delete Referrals
+export const bulkDeleteReferrals = catchAsyncErrors(async (req, res, next) => {
+  const { referralIds } = req.body;
+  if (!Array.isArray(referralIds) || referralIds.length === 0) {
+    return next(new ErrorHandler("Please provide an array of referralIds to delete", 400));
+  }
+
+  const result = await Referral.deleteMany({ _id: { $in: referralIds } });
+
+  res.status(200).json({
+    success: true,
+    message: `Successfully deleted ${result.deletedCount} referrals`,
+    deletedCount: result.deletedCount,
   });
 });

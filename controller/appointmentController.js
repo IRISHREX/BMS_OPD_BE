@@ -8,6 +8,7 @@ import { User } from "../models/userSchema.js";
 import { Invoice } from "../models/invoiceSchema.js";
 import { Report } from "../models/reportSchema.js";
 import { Referral } from "../models/referralSchema.js";
+import { GeneralSettings } from "../models/generalSettingsSchema.js";
 import { logEvent } from "../utils/logger.js";
 
 // Helper to centralize business rules for status <-> paymentStatus
@@ -395,7 +396,14 @@ export const postAppointment = catchAsyncErrors(async (req, res, next) => {
     const genInvoiceNumber = `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString().slice(-6)}`;
     // Use doctorFee and price from request payload if provided, otherwise fall back to doctor's consultation fee & default platform fee
     const consultationFee = Number(req.body.doctorFee != null ? req.body.doctorFee : (chosenDoctor?.consultationFee || bookingPrice || 0));
-    const platformFee = Number(req.body.price != null ? req.body.price : 50);
+    let defaultPlatformFee = 20;
+    try {
+      const gs = await GeneralSettings.findOne();
+      if (gs && gs.platformFee !== undefined) {
+        defaultPlatformFee = Number(gs.platformFee);
+      }
+    } catch (_) {}
+    const platformFee = Number(req.body.price != null ? req.body.price : defaultPlatformFee);
 
     const invoiceItems = [
       { description: 'Consultation Fee', quantity: 1, unitPrice: consultationFee, total: consultationFee },

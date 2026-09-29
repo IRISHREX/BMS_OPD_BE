@@ -54,32 +54,39 @@ export const setCapacity = catchAsyncErrors(async (req, res, next) => {
 
 // Set capacity for multiple days (bulk)
 export const setBulkCapacity = catchAsyncErrors(async (req, res, next) => {
-  let { doctorId, startDate, endDate, capacity, maxPatients, isWorkingDay, notes } = req.body;
+  let { doctorId, startDate, endDate, dates, capacity, maxPatients, isWorkingDay, notes } = req.body;
 
   doctorId = doctorId || req.user?._id;
   if (capacity === undefined && maxPatients !== undefined) {
     capacity = maxPatients;
   }
 
-  if (!doctorId || !startDate || !endDate || capacity === undefined) {
-    return next(new ErrorHandler("Please provide doctorId, startDate, endDate and capacity", 400));
+  if (!doctorId || capacity === undefined) {
+    return next(new ErrorHandler("Please provide doctorId and capacity", 400));
   }
 
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  
-  if (start > end) {
-    return next(new ErrorHandler("Start date cannot be after end date", 400));
-  }
+  let dateArray = [];
 
-  const dateArray = [];
-  let currentDate = new Date(start);
-  while (currentDate <= end) {
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, "0");
-    const day = String(currentDate.getDate()).padStart(2, "0");
-    dateArray.push(`${year}-${month}-${day}`);
-    currentDate.setDate(currentDate.getDate() + 1);
+  if (Array.isArray(dates) && dates.length > 0) {
+    dateArray = Array.from(new Set(dates.map((d) => String(d).slice(0, 10))));
+  } else if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (start > end) {
+      return next(new ErrorHandler("Start date cannot be after end date", 400));
+    }
+
+    let currentDate = new Date(start);
+    while (currentDate <= end) {
+      const year = currentDate.getFullYear();
+      const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+      const day = String(currentDate.getDate()).padStart(2, "0");
+      dateArray.push(`${year}-${month}-${day}`);
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+  } else {
+    return next(new ErrorHandler("Please provide either dates array or startDate and endDate", 400));
   }
 
   const bulkOperations = dateArray.map((dateStr) => {

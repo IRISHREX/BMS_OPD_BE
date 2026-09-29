@@ -14,10 +14,18 @@ import {
   searchReferrals,
   getReferralByNumber,
   getReferralStatistics,
+  updateReferralCommission,
+  payReferralCommission,
+  bulkPayReferralCommissions,
+  bulkDeleteReferrals,
 } from "../controller/referralController.js";
 import { isDashboardAuthenticated } from "../middlewares/auth.js";
 
 const router = express.Router();
+
+// Bulk operations
+router.post("/bulk-pay", isDashboardAuthenticated, bulkPayReferralCommissions);
+router.post("/bulk-delete", isDashboardAuthenticated, bulkDeleteReferrals);
 
 // Public / Patient Booking: Book appointment as an inbound referral for a doctor
 router.post("/book", bookPatientReferral);
@@ -25,6 +33,10 @@ router.post("/book", bookPatientReferral);
 // Convert Inbound Referral to Official Appointment (Admin, Doctor, Compounder)
 router.post("/:id/convert-to-appointment", isDashboardAuthenticated, convertToAppointment);
 router.post("/convert-to-appointment/:id", isDashboardAuthenticated, convertToAppointment);
+
+// Commission Actions
+router.put("/:id/commission", isDashboardAuthenticated, updateReferralCommission);
+router.post("/:id/pay", isDashboardAuthenticated, payReferralCommission);
 
 // Create referral (Doctor outbound referral to hospital/clinic)
 router.post("/create", isDashboardAuthenticated, createReferral);

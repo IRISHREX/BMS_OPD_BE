@@ -40,6 +40,24 @@ const generalSettingsSchema = new mongoose.Schema(
       type: String,
       default: "/Footer.png",
     },
+    savedAddresses: {
+      type: [String],
+      default: [
+        "Vill - Tarbagan, Po - Dhuliyan, Dist - Murshidabad, Pin - 742202, State - WB",
+      ],
+    },
+    soundSettings: {
+      volume: {
+        type: Number,
+        default: 50,
+        min: 0,
+        max: 100,
+      },
+      isMuted: {
+        type: Boolean,
+        default: false,
+      },
+    },
   },
   { timestamps: true }
 );
